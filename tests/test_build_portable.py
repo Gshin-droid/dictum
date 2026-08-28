@@ -58,3 +58,31 @@ def test_readme_names_the_key_and_the_tray(monkeypatch, tmp_path):
     text = module.READ_ME_FIRST
     for must in ("F8", "Esc", "рядом с часами", "Program Files", "dictum.exe"):
         assert must in text, f"в инструкции нет про «{must}»"
+
+
+def test_version_file_carries_name_author_and_version(monkeypatch, tmp_path):
+    """Паспорт exe: без него файл безымянный и человеку, и антивирусным эвристикам."""
+    module = _load(monkeypatch, tmp_path / "dist")
+    monkeypatch.setattr(module, "ROOT", ROOT)
+    out = tmp_path / "version_info.txt"
+
+    module.make_version_file(out)
+
+    text = out.read_text(encoding="utf-8")
+    sys.path.insert(0, str(ROOT))
+    from voice_input import APP_AUTHOR, APP_NAME, APP_VERSION
+
+    assert f"StringStruct('ProductName', '{APP_NAME}')" in text
+    assert f"StringStruct('FileVersion', '{APP_VERSION}')" in text
+    assert APP_AUTHOR in text
+    assert "MIT" in text
+
+
+def test_version_is_three_numbers():
+    """Версию читают люди и сравнивают машины — формат должен быть предсказуемым."""
+    sys.path.insert(0, str(ROOT))
+    from voice_input import APP_VERSION
+
+    parts = APP_VERSION.split(".")
+    assert len(parts) == 3, f"ждём вид 1.2.3, а не {APP_VERSION}"
+    assert all(part.isdigit() for part in parts), f"в версии не только числа: {APP_VERSION}"

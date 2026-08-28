@@ -42,6 +42,41 @@ def make_icon(path: Path) -> None:
     print(f"иконка: {path.name}")
 
 
+def make_version_file(path: Path) -> None:
+    """Паспорт exe: имя, версия, автор, лицензия — то, что проводник Windows
+    показывает в свойствах файла на вкладке «Подробно».
+
+    Без него exe выглядит безымянным куском кода: и человеку непонятно, что за
+    файл у него на диске, и антивирусным эвристикам такой файл подозрительнее.
+    Версия берётся из voice_input.py, чтобы не разъезжаться с той, что в меню.
+    """
+    sys.path.insert(0, str(ROOT))
+    from voice_input import APP_AUTHOR, APP_NAME, APP_VERSION
+
+    numbers = tuple(int(part) for part in APP_VERSION.split(".")) + (0,) * 4
+    path.write_text(f"""VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={numbers[:4]},
+    prodvers={numbers[:4]},
+    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('CompanyName', '{APP_AUTHOR}'),
+      StringStruct('FileDescription', '{APP_NAME} — голосовая диктовка'),
+      StringStruct('FileVersion', '{APP_VERSION}'),
+      StringStruct('InternalName', '{NAME}'),
+      StringStruct('LegalCopyright', '© 2026 {APP_AUTHOR}. Лицензия MIT'),
+      StringStruct('OriginalFilename', '{NAME}.exe'),
+      StringStruct('ProductName', '{APP_NAME}'),
+      StringStruct('ProductVersion', '{APP_VERSION}')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+""", encoding="utf-8")
+    print(f"паспорт файла: {APP_NAME} {APP_VERSION}")
+
+
 def stop_running() -> None:
     """Работающий exe держит сам себя — без остановки пересборка падает на «отказано в доступе»."""
     subprocess.run(
@@ -51,7 +86,7 @@ def stop_running() -> None:
     )
 
 
-def build(icon: Path) -> None:
+def build(icon: Path, version_file: Path) -> None:
     args = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
         "--onefile",      # один файл: библиотеки внутри, модель снаружи
@@ -59,6 +94,7 @@ def build(icon: Path) -> None:
         "--noupx",        # сжатие UPX — частый повод для ложной тревоги антивируса
         "--name", NAME,
         "--icon", str(icon),
+        "--version-file", str(version_file),
         "--distpath", str(OUT), "--workpath", str(BUILD), "--specpath", str(BUILD),
         "--paths", str(ROOT),
         # оба импортируются внутри функций, статический анализатор их не находит
@@ -152,10 +188,12 @@ def portable() -> Path:
 
 if __name__ == "__main__":
     icon_path = BUILD / f"{NAME}.ico"
+    version_path = BUILD / "version_info.txt"
     icon_path.parent.mkdir(parents=True, exist_ok=True)
     stop_running()
     make_icon(icon_path)
-    build(icon_path)
+    make_version_file(version_path)
+    build(icon_path, version_path)
     exe = OUT / f"{NAME}.exe"
     print(f"\nготово: {exe}  ({exe.stat().st_size / 1e6:.0f} МБ)")
     print("модель качается сама при первом запуске, рядом с exe появится папка models")

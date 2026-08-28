@@ -82,6 +82,10 @@ def ensure_model_dir(name: str) -> Path:
             shutil.rmtree(folder, ignore_errors=True)
     return folder
 APP_NAME = "Dictum"
+# Три числа: ломающее изменение . новые возможности . исправления.
+# Единственное место, где версия записана: отсюда её берут «О программе», журнал
+# и свойства exe, которые показывает проводник Windows.
+APP_VERSION = "1.0.0"
 APP_TAGLINE = f"{APP_NAME} — голосовая диктовка"
 APP_AUTHOR = "Gshin-droid"
 APP_URL = "github.com/Gshin-droid/dictum"
@@ -612,7 +616,7 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
             f"Автор: {APP_AUTHOR}. Открытый код, лицензия MIT: {APP_URL}"
         )
         try:
-            icon.notify(text, APP_TAGLINE)
+            icon.notify(text, f"{APP_NAME} {APP_VERSION} — голосовая диктовка")
         except Exception:  # всплывающие подсказки есть не в каждой системе
             recorder.announce(f"{APP_NAME}: {recorder.model_name}, клавиша {hotkey.key.upper()}", 6)
 
@@ -683,10 +687,15 @@ def check(asr_model: str = DEFAULT_ASR_MODEL) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Голосовая диктовка, локальная")
+    parser = argparse.ArgumentParser(description=f"{APP_TAGLINE}, локальная")
+    parser.add_argument("--version", action="version",
+                        version=f"{APP_NAME} {APP_VERSION} — {APP_URL}")
     parser.add_argument("--check", action="store_true", help="проверить микрофон и модель, выйти")
     parser.add_argument("--headless", action="store_true", help="без окна, только хоткей")
     args = parser.parse_args()
+
+    # первой строкой в журнале — что именно запущено: без этого чужой лог не разобрать
+    print(f"{APP_NAME} {APP_VERSION}, папка программы: {APP_DIR}")
 
     load_dotenv(APP_DIR / ".env")
     asr_model = os.getenv("ASR_MODEL", DEFAULT_ASR_MODEL)
