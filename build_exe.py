@@ -9,6 +9,7 @@
 папку models рядом с exe.
 """
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
 OUT = ROOT / "dist"
 NAME = "dictum"
+DEFAULT_MODEL = "gigaam-v3-e2e-rnnt"  # её и кладём в переносную копию
 
 # PyInstaller сам их не находит, а без них exe падает на первом же обращении
 COLLECT_DATA = ["onnx_asr"]  # 30 служебных моделей предобработки звука
@@ -79,6 +81,67 @@ def build(icon: Path) -> None:
     subprocess.run(args, check=True)
 
 
+READ_ME_FIRST = """Dictum — голосовая диктовка
+
+Нажал клавишу — говоришь — текст появляется там, где стоял курсор.
+
+КАК ЗАПУСТИТЬ
+  Двойной клик по dictum.exe. Устанавливать ничего не нужно.
+  Если Windows покажет синее окно «Система Windows защитила ваш компьютер»,
+  нажать ссылку «Подробнее», под ней появится кнопка «Выполнить в любом случае».
+
+  Окна не появится: программа живёт значком рядом с часами. Он может прятаться
+  под стрелочкой «Отображать скрытые значки».
+
+КАК ПОЛЬЗОВАТЬСЯ
+  F8            начать запись (внизу экрана появится полоска с волной)
+  F8 ещё раз    распознать и вставить текст туда, где стоял курсор
+  Esc           выбросить запись, ничего не распознавая
+  правый клик по значку   настройки: модель, горячая клавиша, о программе
+  правый клик по значку → Выход   закрыть программу
+
+  Курсор нужно поставить в поле для ввода ДО нажатия F8: текст вставляется
+  в то окно, которое было активным в момент начала записи.
+
+ВАЖНО
+  Папку не распаковывать в Program Files — программе нужно право записи
+  рядом с собой. Годится рабочий стол, «Документы», флешка.
+  Папку models не удалять и не переименовывать: в ней распознавание речи.
+
+  Интернет не нужен вообще: модель уже внутри, речь никуда не отправляется.
+
+Автор: Gshin-droid. Открытый код, лицензия MIT:
+https://github.com/Gshin-droid/dictum
+"""
+
+
+def portable() -> Path:
+    """Собирает папку «распаковал и работай»: exe плюс уже скачанная модель.
+
+    Второй способ раздачи. Один exe меньше, но у него первый запуск качает
+    216 МБ — а бывает, что интернета на той машине нет вовсе или он платный.
+    Здесь качать нечего: копируется всё готовое.
+    """
+    folder = OUT / f"{NAME}-portable"
+    shutil.rmtree(folder, ignore_errors=True)
+    (folder / "models").mkdir(parents=True)
+
+    shutil.copy2(OUT / f"{NAME}.exe", folder / f"{NAME}.exe")
+    (folder / "Прочти меня.txt").write_text(READ_ME_FIRST, encoding="utf-8")
+
+    weights = OUT / "models" / DEFAULT_MODEL
+    if not weights.exists():
+        raise SystemExit(
+            f"Нет весов в {weights}. Запустить dist/{NAME}.exe один раз — он их скачает."
+        )
+    print(f"копирую веса {DEFAULT_MODEL} (216 МБ, полминуты)...")
+    shutil.copytree(weights, folder / "models" / DEFAULT_MODEL)
+
+    print("жму в архив, это пара минут...")
+    archive = shutil.make_archive(str(OUT / f"{NAME}-portable"), "zip", OUT, folder.name)
+    return Path(archive)
+
+
 if __name__ == "__main__":
     icon_path = BUILD / f"{NAME}.ico"
     icon_path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,3 +151,8 @@ if __name__ == "__main__":
     exe = OUT / f"{NAME}.exe"
     print(f"\nготово: {exe}  ({exe.stat().st_size / 1e6:.0f} МБ)")
     print("модель качается сама при первом запуске, рядом с exe появится папка models")
+
+    if "--portable" in sys.argv:
+        archive = portable()
+        print(f"\nпереносная копия: {archive}  ({archive.stat().st_size / 1e6:.0f} МБ)")
+        print("распаковал, кликнул dictum.exe — работает, качать нечего")

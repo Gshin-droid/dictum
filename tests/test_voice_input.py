@@ -503,3 +503,19 @@ def test_download_notice_survives_key_press(monkeypatch, tmp_path):
     rec._toggle()
 
     assert rec.notice_text().startswith("первый запуск")
+
+
+def test_log_falls_back_when_folder_is_closed_for_writing(monkeypatch, tmp_path):
+    """Распаковали в Program Files — программа обязана жить, а не умирать молча."""
+    import tempfile
+
+    module = _load(monkeypatch, _fake()[0])
+    blocker = tmp_path / "это-файл-а-не-папка"
+    blocker.write_text("рядом с таким «каталогом» mkdir не сработает", encoding="utf-8")
+    monkeypatch.setattr(module, "APP_DIR", blocker)
+
+    log = module.open_log()
+    try:
+        assert Path(log.name).parent == Path(tempfile.gettempdir())
+    finally:
+        log.close()

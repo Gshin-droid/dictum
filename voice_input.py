@@ -110,12 +110,26 @@ class _Stamped:
         self.stream.flush()
 
 
+def open_log():
+    """Журнал рядом с программой, а если туда писать нельзя — во временную папку.
+
+    Переносную копию распакуют куда угодно, в том числе в Program Files, где
+    обычной программе писать запрещено. Молча умереть на этой строке нельзя:
+    консоли нет, и человек не увидит ни ошибки, ни программы — просто ничего.
+    """
+    try:
+        (APP_DIR / "logs").mkdir(exist_ok=True)
+        return open(APP_DIR / "logs" / "dictum.log", "a", encoding="utf-8", buffering=1)
+    except OSError:
+        import tempfile
+
+        return open(Path(tempfile.gettempdir()) / "dictum.log", "a", encoding="utf-8", buffering=1)
+
+
 # В сборке PyInstaller без консоли sys.stdout не пустой, а заглушка, молча
 # глотающая вывод, — поэтому проверяем признак сборки, а не только пустоту.
 if getattr(sys, "frozen", False) or sys.stdout is None or sys.stderr is None:
-    (APP_DIR / "logs").mkdir(exist_ok=True)
-    _log = open(APP_DIR / "logs" / "dictum.log", "a", encoding="utf-8", buffering=1)
-    sys.stdout = sys.stderr = _Stamped(_log)
+    sys.stdout = sys.stderr = _Stamped(open_log())
 else:
     # консоль Windows живёт в cp1251: без этого любой ✅ в выводе роняет процесс
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
