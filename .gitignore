@@ -1,0 +1,16 @@
+# веса модели — 216 МБ, качаются сами при первом запуске
+models/
+# сборка
+build/
+dist/
+*.spec
+# рабочее
+.venv/
+logs/
+data/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+# личные разрешения Claude Code (общие правила лежат в settings.json)
+.claude/settings.local.json
