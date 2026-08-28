@@ -1,8 +1,8 @@
-"""Сборка голосовой диктовки в один exe.
+"""Сборка Dictum в один exe.
 
     .venv\\Scripts\\python.exe build_exe.py
 
-На выходе — dist/voice-dictation.exe, один файл на 67 МБ. Веса модели внутрь НЕ
+На выходе — dist/dictum.exe, один файл на 62 МБ. Веса модели внутрь НЕ
 вшиваются намеренно: они весят 216 МБ, а однофайловая сборка распаковывает всё
 своё содержимое во временную папку при каждом запуске — старт растянулся бы до
 десятка секунд, и так каждый раз. Модель скачивается сама при первом запуске в
@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
 OUT = ROOT / "dist"
-NAME = "voice-dictation"
+NAME = "dictum"
 
 # PyInstaller сам их не находит, а без них exe падает на первом же обращении
 COLLECT_DATA = ["onnx_asr"]  # 30 служебных моделей предобработки звука
@@ -53,7 +53,7 @@ def build(icon: Path) -> None:
     args = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
         "--onefile",      # один файл: библиотеки внутри, модель снаружи
-        "--windowed",     # без чёрного окна консоли; вывод уходит в logs/voice-input.log
+        "--windowed",     # без чёрного окна консоли; вывод уходит в logs/dictum.log
         "--noupx",        # сжатие UPX — частый повод для ложной тревоги антивируса
         "--name", NAME,
         "--icon", str(icon),

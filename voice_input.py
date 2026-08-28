@@ -1,7 +1,9 @@
-"""Голосовая диктовка для Windows: клавиша → запись → распознавание → вставка текста.
+"""Dictum — голосовая диктовка для Windows: клавиша → запись → распознавание → вставка.
+
+Открытый код, лицензия MIT: github.com/Gshin-droid/dictum
 
 Запуск:
-    voice-dictation.exe               собранная версия, ставить ничего не надо
+    dictum.exe                        собранная версия, ставить ничего не надо
     python voice_input.py             из исходников: окно + значок в лотке
     python voice_input.py --headless  без окна, только клавиша
     python voice_input.py --check     проверить микрофон и модель, выйти
@@ -79,6 +81,11 @@ def ensure_model_dir(name: str) -> Path:
             print(f"Папка модели {name} неполная — качаю заново")
             shutil.rmtree(folder, ignore_errors=True)
     return folder
+APP_NAME = "Dictum"
+APP_TAGLINE = f"{APP_NAME} — голосовая диктовка"
+APP_AUTHOR = "Gshin-droid"
+APP_URL = "github.com/Gshin-droid/dictum"
+
 SAMPLE_RATE = 16000
 MAX_SECONDS = 120  # предохранитель: авто-стоп, если забыл выключить запись
 MIN_SECONDS = 0.3
@@ -107,7 +114,7 @@ class _Stamped:
 # глотающая вывод, — поэтому проверяем признак сборки, а не только пустоту.
 if getattr(sys, "frozen", False) or sys.stdout is None or sys.stderr is None:
     (APP_DIR / "logs").mkdir(exist_ok=True)
-    _log = open(APP_DIR / "logs" / "voice-input.log", "a", encoding="utf-8", buffering=1)
+    _log = open(APP_DIR / "logs" / "dictum.log", "a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = _Stamped(_log)
 else:
     # консоль Windows живёт в cp1251: без этого любой ✅ в выводе роняет процесс
@@ -586,13 +593,14 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
     def on_about(icon, _item=None):
         text = (
             f"{hotkey.key.upper()} — начать и остановить диктовку, Esc — отменить.\n"
-            f"Распознаёт {ASR_MODELS.get(recorder.asr_model, recorder.model_name)}.\n"
-            "Речь обрабатывается на этом компьютере и никуда не отправляется."
+            f"Модель: {ASR_MODELS.get(recorder.asr_model, recorder.model_name)}.\n"
+            "Речь обрабатывается на этом компьютере и никуда не отправляется.\n"
+            f"Автор: {APP_AUTHOR}. Открытый код, лицензия MIT: {APP_URL}"
         )
         try:
-            icon.notify(text, "Голосовая диктовка")
+            icon.notify(text, APP_TAGLINE)
         except Exception:  # всплывающие подсказки есть не в каждой системе
-            recorder.announce(f"{recorder.model_name}, клавиша {hotkey.key.upper()}", 6)
+            recorder.announce(f"{APP_NAME}: {recorder.model_name}, клавиша {hotkey.key.upper()}", 6)
 
     def choose_model(name: str):
         return lambda icon, _item=None: in_background(lambda: recorder.switch_model(name))
@@ -608,9 +616,9 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
     ]
 
     icon = pystray.Icon(
-        "voice-input",
+        APP_NAME.lower(),
         tray_image(tray_colors()["idle"]),
-        "Голосовая диктовка",
+        APP_TAGLINE,
         menu=pystray.Menu(
             pystray.MenuItem("Начать / остановить запись", lambda *_: recorder.toggle(),
                              default=True),
