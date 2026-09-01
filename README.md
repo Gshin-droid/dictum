@@ -202,7 +202,9 @@ A new paragraph begins where the recording had a pause longer than two seconds.
 
 ## Settings
 
-Right-click the icon next to the clock:
+Everything lives in one menu — right-click the icon next to the clock:
+
+![The Dictum tray menu](docs/img/menu.png)
 
 - **Язык и модель** ("Language and model") — switches between three models. An
   unfamiliar one downloads itself, and the choice is remembered. Don't like it?
