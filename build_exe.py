@@ -20,6 +20,9 @@ OUT = ROOT / "dist"
 NAME = "dictum"
 DEFAULT_MODEL = "gigaam-v3-e2e-rnnt"  # её и кладём в переносную копию
 VAD_MODEL = "silero-vad"  # нарезчик длинных записей; без него расшифровка полезет в сеть
+# Бухгалтерия качалки: остаётся в папке весов после скачивания и работе не нужна.
+# Чужому человеку в архиве не место — он открывает его и видит непонятный сор.
+LEFTOVERS = shutil.ignore_patterns(".cache")
 
 # PyInstaller сам их не находит, а без них exe падает на первом же обращении
 COLLECT_DATA = ["onnx_asr"]  # 30 служебных моделей предобработки звука
@@ -195,7 +198,7 @@ def portable() -> Path:
             f"Нет весов в {weights}. Запустить dist/{NAME}.exe один раз — он их скачает."
         )
     print(f"копирую веса {DEFAULT_MODEL} (216 МБ, полминуты)...")
-    shutil.copytree(weights, folder / "models" / DEFAULT_MODEL)
+    shutil.copytree(weights, folder / "models" / DEFAULT_MODEL, ignore=LEFTOVERS)
 
     vad = OUT / "models" / VAD_MODEL
     if not vad.exists():
@@ -203,7 +206,7 @@ def portable() -> Path:
             f"Нет нарезчика в {vad}. Расшифруй любой файл готовым exe — он его скачает.\n"
             "Без него переносная копия полезет в интернет на первой же расшифровке."
         )
-    shutil.copytree(vad, folder / "models" / VAD_MODEL)
+    shutil.copytree(vad, folder / "models" / VAD_MODEL, ignore=LEFTOVERS)
 
     print("жму в архив, это пара минут...")
     archive = shutil.make_archive(str(OUT / f"{NAME}-portable"), "zip", OUT, folder.name)

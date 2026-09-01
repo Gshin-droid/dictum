@@ -91,3 +91,19 @@ def test_version_is_three_numbers():
     parts = APP_VERSION.split(".")
     assert len(parts) == 3, f"ждём вид 1.2.3, а не {APP_VERSION}"
     assert all(part.isdigit() for part in parts), f"в версии не только числа: {APP_VERSION}"
+
+
+def test_download_leftovers_stay_out_of_the_archive(monkeypatch, tmp_path):
+    """Служебные папки качалки коллеге не нужны: он откроет архив и увидит сор."""
+    module = _load(monkeypatch, tmp_path / "dist")
+    _fake_release(tmp_path / "dist", module)
+    junk = tmp_path / "dist" / "models" / module.DEFAULT_MODEL / ".cache" / "huggingface"
+    junk.mkdir(parents=True)
+    (junk / "download.metadata").write_bytes("бухгалтерия качалки".encode())
+
+    module.portable()
+
+    folder = tmp_path / "dist" / f"{module.NAME}-portable"
+    assert not (folder / "models" / module.DEFAULT_MODEL / ".cache").exists()
+    assert (folder / "models" / module.DEFAULT_MODEL / "encoder.int8.onnx").exists(), \
+        "сами веса при этом должны остаться на месте"
