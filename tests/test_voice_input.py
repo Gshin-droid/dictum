@@ -523,3 +523,118 @@ def test_log_falls_back_when_folder_is_closed_for_writing(monkeypatch, tmp_path)
         assert Path(log.name).parent == Path(tempfile.gettempdir())
     finally:
         log.close()
+
+
+# --- поиск причины, когда программа не запустилась -------------------------
+
+
+def test_busy_port_alone_does_not_stop_the_program(monkeypatch):
+    """Занятый порт — не доказательство, что копия уже работает.
+
+    Его мог взять кто угодно, а после недавнего выхода Windows держит порт ещё
+    пару минут. Раньше программа на этом молча закрывалась, и у получателя она
+    просто «не запускалась» без объяснений.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "talk_to_running_copy", lambda files: False)
+
+    class _Deaf:
+        def setsockopt(self, *a):
+            pass
+
+        def bind(self, *a):
+            raise OSError(10048, "адрес уже используется")
+
+        def close(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "socket", types.SimpleNamespace(
+        socket=lambda: _Deaf(), SOL_SOCKET=1, SO_REUSEADDR=4))
+
+    assert module.ensure_single_instance() is None, "должны запуститься, пусть и без замка"
+
+
+def test_answering_port_means_a_real_second_copy(monkeypatch):
+    """А вот если на том конце ответили — там правда наша копия, второй быть не должно."""
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "talk_to_running_copy", lambda files: True)
+
+    class _Deaf:
+        def setsockopt(self, *a):
+            pass
+
+        def bind(self, *a):
+            raise OSError(10048, "адрес уже используется")
+
+        def close(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "socket", types.SimpleNamespace(
+        socket=lambda: _Deaf(), SOL_SOCKET=1, SO_REUSEADDR=4))
+
+    with pytest.raises(SystemExit):
+        module.ensure_single_instance()
+
+
+def test_listener_survives_a_missing_lock(monkeypatch):
+    """Без замка слушать нечего, но падать на этом нельзя."""
+    module = _load(monkeypatch, _fake()[0])
+    module.listen_for_files(None, lambda paths: pytest.fail("слушать нечего"))
+
+
+def test_crash_is_written_down_and_shown(monkeypatch, tmp_path, capsys):
+    """Ошибка, которую никто не поймал, обязана попасть и в журнал, и на экран.
+
+    В сборке без консоли traceback уходит в никуда: программа просто исчезает,
+    и человек говорит «не запускается». Так и случилось у первого получателя.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    shown = []
+    monkeypatch.setattr(module, "show_error", shown.append)
+
+    try:
+        raise ValueError("модель не нашлась")
+    except ValueError:
+        module.report_crash(*sys.exc_info())
+
+    written = capsys.readouterr().out
+    assert "НЕОБРАБОТАННАЯ ОШИБКА" in written
+    assert "модель не нашлась" in written and "Traceback" in written
+    assert shown and "модель не нашлась" in shown[0]
+    assert "dictum.log" in shown[0], "человеку надо сказать, какой файл прислать"
+
+
+def test_environment_report_names_what_usually_breaks(monkeypatch, tmp_path):
+    """По чужому журналу должно быть видно: версия, папка, система, есть ли модель."""
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    (tmp_path / "models" / "gigaam-v3-e2e-rnnt").mkdir(parents=True)
+
+    text = module.describe_environment()
+
+    assert module.APP_VERSION in text
+    assert str(tmp_path) in text
+    assert "gigaam-v3-e2e-rnnt" in text, "видно ли модель — первый вопрос при разборе"
+    assert "свободно на диске" in text
+
+
+def test_missing_models_are_named_as_missing(monkeypatch, tmp_path):
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    assert "нет, будут скачаны" in module.describe_environment()
+
+
+def test_huge_log_is_set_aside(monkeypatch, tmp_path):
+    """Журнал не должен расти вечно: у получателя цикл ошибок забил бы диск."""
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "dictum.log").write_text("x" * (module.LOG_LIMIT + 10), encoding="utf-8")
+
+    handle = module.open_log()
+    handle.close()
+
+    assert (logs / "dictum.old.log").exists(), "старый журнал должен сохраниться рядом"
+    assert (logs / "dictum.log").stat().st_size == 0, "новый начинается с чистого листа"

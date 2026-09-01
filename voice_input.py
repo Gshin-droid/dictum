@@ -86,7 +86,7 @@ APP_NAME = "Dictum"
 # Три числа: ломающее изменение . новые возможности . исправления.
 # Единственное место, где версия записана: отсюда её берут «О программе», журнал
 # и свойства exe, которые показывает проводник Windows.
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 APP_TAGLINE = f"{APP_NAME} — голосовая диктовка"
 APP_AUTHOR = "Gshin-droid"
 APP_URL = "github.com/Gshin-droid/dictum"
@@ -115,8 +115,11 @@ class _Stamped:
         self.stream.flush()
 
 
-def open_log():
-    """Журнал рядом с программой, а если туда писать нельзя — во временную папку.
+LOG_LIMIT = 1_000_000  # больше мегабайта журнал не нужен никому
+
+
+def log_path() -> Path:
+    """Куда писать журнал. Рядом с программой, а если туда нельзя — во временную папку.
 
     Переносную копию распакуют куда угодно, в том числе в Program Files, где
     обычной программе писать запрещено. Молча умереть на этой строке нельзя:
@@ -124,11 +127,64 @@ def open_log():
     """
     try:
         (APP_DIR / "logs").mkdir(exist_ok=True)
-        return open(APP_DIR / "logs" / "dictum.log", "a", encoding="utf-8", buffering=1)
+        target = APP_DIR / "logs" / "dictum.log"
+        target.touch(exist_ok=True)
+        return target
+    except OSError:
+        import tempfile
+
+        return Path(tempfile.gettempdir()) / "dictum.log"
+
+
+def open_log():
+    """Открывает журнал, отложив в сторону разросшийся: он не должен расти вечно."""
+    target = log_path()
+    try:
+        if target.exists() and target.stat().st_size > LOG_LIMIT:
+            target.replace(target.with_suffix(".old.log"))
+    except OSError:
+        pass  # не вышло подвинуть — пишем дальше в тот же, это не повод падать
+    try:
+        return open(target, "a", encoding="utf-8", buffering=1)
     except OSError:
         import tempfile
 
         return open(Path(tempfile.gettempdir()) / "dictum.log", "a", encoding="utf-8", buffering=1)
+
+
+def show_error(text: str) -> None:
+    """Окно с ошибкой. В сборке без консоли это единственный способ что-то сказать.
+
+    Человеку, которому программу отдали, журнал не поможет, если он не знает,
+    что журнал есть. Поэтому про поломку говорим прямо на экране и называем файл,
+    который надо прислать.
+    """
+    import ctypes
+
+    try:
+        ctypes.windll.user32.MessageBoxW(
+            0, text, f"{APP_NAME}: не удалось запуститься", 0x10 | 0x1000
+        )
+    except Exception as exc:  # окна не показать — хотя бы в журнал
+        print(f"Не смог показать окно с ошибкой: {exc}")
+
+
+def report_crash(kind, value, trace) -> None:
+    """Ловушка для ошибок, которые никто не поймал: и в главном потоке, и в рабочих.
+
+    Без неё сборка без консоли просто исчезает с экрана: traceback печатается в
+    поток, которого нет, и человек видит, что программа «не запустилась». Именно
+    так и вышло у первого же получателя.
+    """
+    import traceback
+
+    text = "".join(traceback.format_exception(kind, value, trace)).strip()
+    print(f"⚠️ НЕОБРАБОТАННАЯ ОШИБКА\n{text}\n--- конец ошибки ---")
+    show_error(
+        f"{kind.__name__}: {value}\n\n"
+        f"Что случилось — записано в файл:\n{log_path()}\n\n"
+        "Пришли этот файл автору, по нему видно причину."
+    )
 
 
 # В сборке PyInstaller без консоли sys.stdout не пустой, а заглушка, молча
@@ -139,6 +195,37 @@ else:
     # консоль Windows живёт в cp1251: без этого любой ✅ в выводе роняет процесс
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+sys.excepthook = report_crash
+threading.excepthook = lambda args: report_crash(
+    args.exc_type, args.exc_value, args.exc_traceback
+)
+
+
+def describe_environment() -> str:
+    """Что писать в журнал первым делом. Без этого чужой журнал не разобрать.
+
+    Всё здесь — то, обо что программа спотыкалась или может споткнуться: не та
+    папка, нет места под модель, модель не докачалась, не та разрядность системы.
+    """
+    import platform
+
+    lines = [
+        f"{APP_NAME} {APP_VERSION}",
+        f"папка программы: {APP_DIR}",
+        f"сборка: {'exe' if getattr(sys, 'frozen', False) else 'запуск из исходников'}",
+        f"система: {platform.platform()}, python {platform.python_version()}",
+        f"журнал: {log_path()}",
+    ]
+    try:
+        lines.append(f"свободно на диске: {shutil.disk_usage(APP_DIR).free / 1e9:.1f} ГБ")
+    except OSError as exc:
+        lines.append(f"место на диске не определилось: {exc}")
+
+    models = APP_DIR / "models"
+    found = sorted(p.name for p in models.iterdir() if p.is_dir()) if models.exists() else []
+    lines.append(f"модели на месте: {', '.join(found) if found else 'нет, будут скачаны'}")
+    return "\n".join(lines)
 
 
 def bind_hotkey(hotkey: str, callback) -> None:
@@ -201,22 +288,49 @@ def ensure_single_instance(files: list[str] | None = None):
     try:
         sock.bind(("127.0.0.1", SINGLE_INSTANCE_PORT))
         sock.listen(4)
-    except OSError:
-        if files:
-            try:
-                with socket.create_connection(("127.0.0.1", SINGLE_INSTANCE_PORT), timeout=5) as out:
-                    out.sendall("\n".join(files).encode("utf-8"))
-                print(f"Передал уже запущенной программе файлов: {len(files)}")
-            except OSError as exc:
-                print(f"⚠️ Не смог передать файлы работающей программе: {exc}")
-        else:
-            print("Уже запущен другой экземпляр — выходим")
+        return sock  # держим сокет открытым до конца работы процесса
+    except OSError as exc:
+        print(f"Порт {SINGLE_INSTANCE_PORT} занять не удалось "
+              f"(код {exc.errno}: {exc.strerror or exc})")
+
+    # Занятый порт — ещё НЕ доказательство, что работает наша программа. Его мог
+    # взять кто угодно, а после недавнего выхода Windows держит его занятым ещё
+    # пару минут. Раньше мы на этом сдавались и писали «уже запущен» — человек
+    # видел, что программа не открылась, и причины узнать не мог.
+    # Отказ от запуска требует доказательства: на том конце должны ответить.
+    if talk_to_running_copy(files):
         sys.exit(0)
-    return sock  # держим сокет открытым до конца работы процесса
+
+    print("⚠️ На том конце никто не ответил — значит это не наша копия, а чужая "
+          "программа или след недавнего выхода. Запускаюсь без замка.")
+    print("   Последствие: перетаскивание файлов на программу работать не будет, "
+          "расшифровка — только через меню значка.")
+    sock.close()
+    return None
+
+
+def talk_to_running_copy(files: list[str] | None) -> bool:
+    """Стучимся в занятый порт. Ответили — там наша копия, ей и отдаём файлы."""
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", SINGLE_INSTANCE_PORT), timeout=3) as out:
+            if files:
+                out.sendall("\n".join(files).encode("utf-8"))
+                print(f"Передал уже запущенной программе файлов: {len(files)}")
+            else:
+                print("Программа уже запущена — этот запуск закрываю")
+        return True
+    except OSError as exc:
+        print(f"Достучаться до занятого порта не вышло: {exc}")
+        return False
 
 
 def listen_for_files(sock, handle) -> None:
     """Принимает пути от второго экземпляра. Свой поток, чтобы не держать окно."""
+    if sock is None:  # замок взять не удалось, слушать нечего
+        return
+
     def serve():
         while True:
             try:
@@ -681,6 +795,15 @@ def tray_image(color: str):
     return img
 
 
+def open_the_log() -> None:
+    """Открывает журнал в блокноте. Человеку, у которого не работает, нужен этот файл,
+    а искать его по папкам он не станет — значит, надо дать одним нажатием."""
+    try:
+        os.startfile(log_path())
+    except OSError as exc:
+        show_error(f"Журнал лежит здесь:\n{log_path()}\n\nОткрыть не вышло: {exc}")
+
+
 def capture_hotkey(recorder: Recorder, hotkey: "Hotkey") -> None:
     """Ждёт нажатие и перевешивает диктовку на эту клавишу. Esc — оставить прежнюю."""
     import keyboard
@@ -771,6 +894,7 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("О программе", on_about),
+            pystray.MenuItem("Показать журнал", lambda *_: open_the_log()),
             pystray.MenuItem("Выход", on_quit),
         ),
     )
@@ -811,8 +935,11 @@ def main() -> None:
     parser.add_argument("files", nargs="*", help="аудиофайлы для расшифровки в текст")
     args = parser.parse_args()
 
-    # первой строкой в журнале — что именно запущено: без этого чужой лог не разобрать
-    print(f"{APP_NAME} {APP_VERSION}, папка программы: {APP_DIR}")
+    # Первым делом в журнал — обстановка. Без неё чужой журнал не разобрать:
+    # не видно ни версии, ни системы, ни того, лежит ли модель на месте.
+    print("=" * 60)
+    print(describe_environment())
+    print("=" * 60)
 
     load_dotenv(APP_DIR / ".env")
     asr_model = os.getenv("ASR_MODEL", DEFAULT_ASR_MODEL)
@@ -866,4 +993,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise  # обычный выход, а не поломка
+    except BaseException:  # noqa: BLE001 — сюда падает всё, что не поймали выше
+        report_crash(*sys.exc_info())
+        sys.exit(1)
