@@ -26,6 +26,9 @@ def _fake_release(out: Path, module, with_weights: bool = True) -> None:
         weights = out / "models" / module.DEFAULT_MODEL
         weights.mkdir(parents=True)
         (weights / "encoder.int8.onnx").write_bytes("как будто веса".encode())
+        vad = out / "models" / module.VAD_MODEL
+        vad.mkdir(parents=True)
+        (vad / "silero_vad.onnx").write_bytes("как будто нарезчик".encode())
 
 
 def test_portable_folder_has_everything_for_offline_start(monkeypatch, tmp_path):
@@ -38,6 +41,8 @@ def test_portable_folder_has_everything_for_offline_start(monkeypatch, tmp_path)
     assert (folder / f"{module.NAME}.exe").exists()
     assert (folder / "models" / module.DEFAULT_MODEL / "encoder.int8.onnx").exists(), \
         "без весов копия перестаёт быть переносной — при запуске полезет в интернет"
+    assert (folder / "models" / module.VAD_MODEL).exists(), \
+        "без нарезчика расшифровка полезет в интернет — копия перестанет быть переносной"
     assert (folder / "Прочти меня.txt").exists(), "человеку нужна инструкция в самой папке"
     assert archive.exists() and archive.suffix == ".zip"
 

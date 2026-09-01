@@ -87,11 +87,13 @@ def enable_acrylic(root) -> bool:
 class VoiceWindow:
     """Капсула диктовки. Живёт всё время работы программы, показывается по надобности."""
 
-    def __init__(self, recorder, hotkey: str):
+    def __init__(self, recorder, hotkey: str, on_files=None):
         self.rec = recorder
         self.hotkey = hotkey.upper()
+        self.on_files = on_files  # куда отдать выбранные файлы на расшифровку
         self.should_quit = threading.Event()  # ставит меню в трее
         self._new_hotkey = None  # смена клавиши приходит из чужого потока, применяем в своём
+        self._ask_file = False  # просьба показать выбор файла, тоже из чужого потока
         self.visible = False
         self.heights = [1.0] * BARS
 
@@ -173,7 +175,31 @@ class VoiceWindow:
         """Смена клавиши. Рисовать отсюда нельзя — зовут из потока меню, а Tk этого не терпит."""
         self._new_hotkey = key
 
+    def ask_for_file(self) -> None:
+        """Просьба из меню показать выбор файла. Само окно откроет _tick.
+
+        Открывать диалог прямо здесь нельзя: Tk работает только в своём потоке,
+        а меню лотка живёт в другом — программа падала бы через раз.
+        """
+        self._ask_file = True
+
+    def _choose_files(self) -> None:
+        from tkinter import filedialog
+
+        import transcribe as tr
+
+        masks = " ".join(f"*{suffix}" for suffix in tr.SUPPORTED)
+        paths = filedialog.askopenfilenames(
+            title="Выбери запись для расшифровки",
+            filetypes=[("Аудиофайлы", masks), ("Все файлы", "*.*")],
+        )
+        if paths and self.on_files:
+            self.on_files(list(paths))
+
     def _tick(self) -> None:
+        if self._ask_file:
+            self._ask_file = False
+            self._choose_files()
         if self._new_hotkey:
             # чипы разной ширины под разные названия клавиш, поэтому собираем заново
             self.hotkey, self._new_hotkey = self._new_hotkey.upper(), None

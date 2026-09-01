@@ -19,14 +19,15 @@ BUILD = ROOT / "build"
 OUT = ROOT / "dist"
 NAME = "dictum"
 DEFAULT_MODEL = "gigaam-v3-e2e-rnnt"  # её и кладём в переносную копию
+VAD_MODEL = "silero-vad"  # нарезчик длинных записей; без него расшифровка полезет в сеть
 
 # PyInstaller сам их не находит, а без них exe падает на первом же обращении
 COLLECT_DATA = ["onnx_asr"]  # 30 служебных моделей предобработки звука
-COLLECT_ALL = ["sounddevice"]  # библиотека записи PortAudio
+COLLECT_ALL = ["sounddevice", "soundfile"]  # PortAudio пишет, libsndfile читает файлы
 COLLECT_BINARIES = ["onnxruntime"]
 # Паспорт пакета (.dist-info): onnx_asr при старте спрашивает свой номер версии
 # через importlib.metadata, а PyInstaller метаданные без спроса не кладёт.
-COPY_METADATA = ["onnx-asr", "onnxruntime", "numpy"]
+COPY_METADATA = ["onnx-asr", "onnxruntime", "numpy", "soundfile"]
 
 # Всё это могло бы приехать транзитом через чужие зависимости и утроить размер
 EXCLUDE = ["torch", "faster_whisper", "ctranslate2", "av", "tkinter.test", "pytest", "IPython"]
@@ -100,6 +101,7 @@ def build(icon: Path, version_file: Path) -> None:
         # оба импортируются внутри функций, статический анализатор их не находит
         "--hidden-import", "voice_window",
         "--hidden-import", "voice_settings",
+        "--hidden-import", "transcribe",
     ]
     for name in COLLECT_DATA:
         args += ["--collect-data", name]
@@ -138,6 +140,16 @@ READ_ME_FIRST = """Dictum — голосовая диктовка
 
   Курсор нужно поставить в поле для ввода ДО нажатия F8: текст вставляется
   в то окно, которое было активным в момент начала записи.
+
+РАСШИФРОВАТЬ ГОТОВУЮ ЗАПИСЬ
+  Перетащить аудиофайл прямо на dictum.exe — рядом с записью появится текст
+  тем же именем, с расширением .txt, и сразу откроется.
+  Либо правый клик по значку -> «Расшифровать аудиофайл…».
+
+  Читаются wav, mp3, ogg, opus, flac. Записи с iPhone (.m4a) сначала перевести
+  в mp3 любым конвертером.
+  Час записи разбирается примерно за восемь минут; пока идёт разбор, диктовка
+  по клавише не работает.
 
 ЕСЛИ КЛАВИША НЕ СРАБАТЫВАЕТ В КАКОМ-ТО ОКНЕ
   В окна, запущенные от имени администратора, обычная программа печатать не
@@ -180,6 +192,14 @@ def portable() -> Path:
         )
     print(f"копирую веса {DEFAULT_MODEL} (216 МБ, полминуты)...")
     shutil.copytree(weights, folder / "models" / DEFAULT_MODEL)
+
+    vad = OUT / "models" / VAD_MODEL
+    if not vad.exists():
+        raise SystemExit(
+            f"Нет нарезчика в {vad}. Расшифруй любой файл готовым exe — он его скачает.\n"
+            "Без него переносная копия полезет в интернет на первой же расшифровке."
+        )
+    shutil.copytree(vad, folder / "models" / VAD_MODEL)
 
     print("жму в архив, это пара минут...")
     archive = shutil.make_archive(str(OUT / f"{NAME}-portable"), "zip", OUT, folder.name)

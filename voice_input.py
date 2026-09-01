@@ -59,6 +59,7 @@ ASR_MODELS = {
     "gigaam-multilingual-large-ctc": "Те же языки, точнее и вдвое тяжелее",
 }
 DEFAULT_ASR_MODEL = "gigaam-v3-e2e-rnnt"
+VAD_MODEL = "silero-vad"  # нарезчик длинных записей по тишине, ~2 МБ
 # Веса рядом с программой (models/) важнее кеша: так переносная копия работает
 # без интернета. Нет папки — модель скачается с HuggingFace в неё же.
 MODEL_READY_MARK = ".complete"  # метка «веса скачаны целиком», см. ensure_model_dir
@@ -85,7 +86,7 @@ APP_NAME = "Dictum"
 # Три числа: ломающее изменение . новые возможности . исправления.
 # Единственное место, где версия записана: отсюда её берут «О программе», журнал
 # и свойства exe, которые показывает проводник Windows.
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_TAGLINE = f"{APP_NAME} — голосовая диктовка"
 APP_AUTHOR = "Gshin-droid"
 APP_URL = "github.com/Gshin-droid/dictum"
@@ -185,20 +186,60 @@ class Hotkey:
             self.on_change(key)
 
 
-def ensure_single_instance():
+def ensure_single_instance(files: list[str] | None = None):
+    """Замок от второго экземпляра — он же почтовый ящик для файлов на расшифровку.
+
+    Порт на петле уже держался ради «запущен ли я дважды». Раз так, второй
+    экземпляр не просто уходит, а сначала передаёт первому пути к файлам, которые
+    на него бросили. Иначе перетаскивание файла на значок работало бы только при
+    выключенной программе, а модель грузилась бы в память вторым экземпляром.
+    """
     import socket
 
     sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
     try:
         sock.bind(("127.0.0.1", SINGLE_INSTANCE_PORT))
+        sock.listen(4)
     except OSError:
-        print("Уже запущен другой экземпляр голосового ввода — выходим")
+        if files:
+            try:
+                with socket.create_connection(("127.0.0.1", SINGLE_INSTANCE_PORT), timeout=5) as out:
+                    out.sendall("\n".join(files).encode("utf-8"))
+                print(f"Передал уже запущенной программе файлов: {len(files)}")
+            except OSError as exc:
+                print(f"⚠️ Не смог передать файлы работающей программе: {exc}")
+        else:
+            print("Уже запущен другой экземпляр — выходим")
         sys.exit(0)
     return sock  # держим сокет открытым до конца работы процесса
 
 
+def listen_for_files(sock, handle) -> None:
+    """Принимает пути от второго экземпляра. Свой поток, чтобы не держать окно."""
+    def serve():
+        while True:
+            try:
+                client, _ = sock.accept()
+            except OSError:  # сокет закрыт при выходе — это не поломка
+                return
+            with client:
+                data = b""
+                while chunk := client.recv(4096):
+                    data += chunk
+            paths = [line for line in data.decode("utf-8", "replace").splitlines() if line.strip()]
+            if paths:
+                print(f"Пришло файлов на расшифровку: {len(paths)}")
+                handle(paths)
+
+    threading.Thread(target=serve, daemon=True).start()
+
+
 def load_engine(asr_model: str = DEFAULT_ASR_MODEL):
-    """Готовит распознаватель: возвращает его имя и функцию «звук → текст».
+    """Готовит распознаватель: имя, функция «звук → текст» и сама модель.
+
+    Модель отдаём третьей — она нужна расшифровке файлов: та зовёт у неё
+    with_vad(), чего через готовую функцию не сделать.
 
     Веса ищутся в models/ рядом с программой. Папки нет — они туда и скачаются,
     после чего интернет программе больше не нужен.
@@ -215,7 +256,25 @@ def load_engine(asr_model: str = DEFAULT_ASR_MODEL):
     model = onnx_asr.load_model(asr_model, folder, quantization="int8")
     folder.mkdir(parents=True, exist_ok=True)
     (folder / MODEL_READY_MARK).touch()
-    return asr_model, lambda audio: model.recognize(audio, sample_rate=SAMPLE_RATE).strip()
+    recognize = lambda audio: model.recognize(audio, sample_rate=SAMPLE_RATE).strip()  # noqa: E731
+    return asr_model, recognize, model
+
+
+def load_vad():
+    """Нарезчик по тишине для расшифровки файлов. Маленький, качается один раз.
+
+    Грузится отдельно и только по надобности: диктовке он не нужен, а тянуть его
+    при каждом старте — лишние секунды на пустом месте.
+    """
+    import onnx_asr
+
+    folder = ensure_model_dir(VAD_MODEL)
+    if not folder.exists():
+        print(f"Скачиваю нарезчик по тишине {VAD_MODEL} — пара мегабайт, один раз")
+    vad = onnx_asr.load_vad("silero", folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / MODEL_READY_MARK).touch()
+    return vad
 
 
 class Recorder:
@@ -227,6 +286,8 @@ class Recorder:
         self.save_samples = save_samples
         self.model_name = asr_model
         self._recognize = None  # модель ещё не загружена
+        self._model = None  # сама модель: нужна расшифровке файлов
+        self._vad = None  # нарезчик по тишине, грузится по первой надобности
         self.switching = True  # грузится или меняется модель: запись пока не начинаем
         self.gain = gain  # чувствительность волны: подкрутить, если полоски вялые или зашкаливают
         self.recording = False
@@ -272,7 +333,7 @@ class Recorder:
         if not (APP_DIR / "models" / self.asr_model).exists():
             self._notify("первый запуск: качаю модель, это несколько минут…", 3600)
         try:
-            self.model_name, self._recognize = load_engine(self.asr_model)
+            self.model_name, self._recognize, self._model = load_engine(self.asr_model)
             self._notify("готово, можно диктовать", 4)
             print(f"Готов. Модель: {self.model_name}")
         except Exception as exc:
@@ -299,23 +360,75 @@ class Recorder:
             self._notify("сначала закончи диктовку")
             return False
 
-        previous = (self.model_name, self._recognize, self.asr_model)
+        previous = (self.model_name, self._recognize, self._model, self.asr_model)
         self.switching = True
         self._notify(f"готовлю модель {name}, это может занять минуты…", 900)
         try:
-            self.model_name, self._recognize = load_engine(name)
+            self.model_name, self._recognize, self._model = load_engine(name)
             self.asr_model = name
             settings.write(APP_DIR / ".env", "ASR_MODEL", name)
             self._notify("модель готова", 4)
             print(f"Модель переключена на {name}")
             return True
         except Exception as exc:
-            self.model_name, self._recognize, self.asr_model = previous
+            self.model_name, self._recognize, self._model, self.asr_model = previous
             self._notify("не смог сменить модель", 6)
             print(f"⚠️ Не смог переключить модель на {name}: {exc}")
             return False
         finally:
             self.switching = False
+
+    def transcribe_files(self, paths: list[str]) -> None:
+        """Расшифровывает готовые записи. Зовётся из чужого потока, работает в своём."""
+        threading.Thread(target=self._transcribe_files, args=(list(paths),), daemon=True).start()
+
+    def _transcribe_files(self, paths: list[str]) -> None:
+        import transcribe as tr
+
+        if self.switching or self._model is None:
+            self._notify("модель ещё готовится — подожди", 6)
+            return
+        if not self.lock.acquire(blocking=False):  # идёт диктовка — не мешаем ей
+            self._notify("сначала закончи диктовку", 6)
+            return
+        try:
+            self.busy = True  # окно покажет «занято», а клавиша не начнёт запись
+            if self._vad is None:
+                self._notify("готовлю нарезчик по тишине…", 300)
+                self._vad = load_vad()
+            for number, name in enumerate(paths, 1):
+                path = Path(name)
+                counter = f"{number} из {len(paths)}: " if len(paths) > 1 else ""
+                try:
+                    self._notify(f"{counter}читаю {path.name}", 300)
+                    audio = tr.read_audio(path)
+                    seconds = len(audio) / SAMPLE_RATE
+                    print(f"Расшифровываю {path.name}: {seconds / 60:.1f} мин")
+
+                    def show(done, counter=counter, seconds=seconds):
+                        self._notify(f"{counter}расшифровываю: {done * 100:.0f}% "
+                                     f"из {seconds / 60:.0f} мин", 300)
+
+                    started = time.time()
+                    text = tr.transcribe(audio, self._model, self._vad, show)
+                    if not text:
+                        self._notify(f"{path.name}: речь не распознана", 8)
+                        print(f"В {path.name} речи не нашлось")
+                        continue
+                    target = tr.save(path, text, self.model_name, seconds)
+                    print(f"→ {target.name}: слов {len(text.split())}, "
+                          f"за {time.time() - started:.0f} с")
+                    self._notify(f"готово: {len(text.split())} слов → {target.name}", 12)
+                    os.startfile(target)  # человеку нужен текст, а не путь к нему
+                except tr.AudioError as exc:
+                    self._notify(f"{path.name}: не читается", 10)
+                    print(f"⚠️ {path.name}: {exc}")
+                except Exception as exc:
+                    self._notify(f"{path.name}: ошибка расшифровки", 10)
+                    print(f"⚠️ Не смог расшифровать {path.name}: {exc}")
+        finally:
+            self.busy = False
+            self.lock.release()
 
     def set_save_samples(self, value: bool) -> None:
         """Сохранять ли копии диктовок на диск. Выбор запоминается в .env."""
@@ -584,7 +697,8 @@ def capture_hotkey(recorder: Recorder, hotkey: "Hotkey") -> None:
     recorder.announce(f"диктовка теперь на {event.name.upper()}", 4)
 
 
-def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"):
+def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey",
+               ask_for_file=None):
     """Иконка в лотке: клик — запись, правая кнопка — настройки. Живёт в своём потоке."""
     import pystray
 
@@ -640,6 +754,8 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
         menu=pystray.Menu(
             pystray.MenuItem("Начать / остановить запись", lambda *_: recorder.toggle(),
                              default=True),
+            pystray.MenuItem("Расшифровать аудиофайл…", lambda *_: ask_for_file(),
+                             visible=ask_for_file is not None),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Язык и модель", pystray.Menu(*model_items)),
             pystray.MenuItem(
@@ -680,7 +796,7 @@ def check(asr_model: str = DEFAULT_ASR_MODEL) -> int:
         return 1
 
     started = time.time()
-    name, _recognize = load_engine(asr_model)
+    name, _recognize, _model = load_engine(asr_model)
     print(f"✅ {name} загружается за {time.time() - started:.1f} с")
     print("✅ Всё готово: запускай без --check")
     return 0
@@ -692,6 +808,7 @@ def main() -> None:
                         version=f"{APP_NAME} {APP_VERSION} — {APP_URL}")
     parser.add_argument("--check", action="store_true", help="проверить микрофон и модель, выйти")
     parser.add_argument("--headless", action="store_true", help="без окна, только хоткей")
+    parser.add_argument("files", nargs="*", help="аудиофайлы для расшифровки в текст")
     args = parser.parse_args()
 
     # первой строкой в журнале — что именно запущено: без этого чужой лог не разобрать
@@ -715,25 +832,35 @@ def main() -> None:
 
     import keyboard
 
-    _lock = ensure_single_instance()
+    # Если программа уже работает, этот вызов не вернётся: файлы уйдут ей, а мы выйдем
+    lock = ensure_single_instance(args.files)
     recorder = Recorder(gain, asr_model, save_samples)
     hotkey = Hotkey(hotkey_key, recorder.toggle)
+    listen_for_files(lock, recorder.transcribe_files)
 
     if args.headless:
         recorder.load()
+        if args.files:
+            recorder.transcribe_files(args.files)
         print(f"Готов (headless). Хоткей: {hotkey.key}")
         keyboard.wait()
         return
 
     from voice_window import VoiceWindow
 
-    window = VoiceWindow(recorder, hotkey.key)
+    window = VoiceWindow(recorder, hotkey.key, on_files=recorder.transcribe_files)
     hotkey.on_change = window.set_hotkey
-    start_tray(recorder, window.should_quit, hotkey)
+    start_tray(recorder, window.should_quit, hotkey, ask_for_file=window.ask_for_file)
     print(f"Окно и значок на месте. Хоткей: {hotkey.key}, "
           f"стекло: {'да' if window.glass else 'нет (матовый фон)'}")
-    # модель грузим последней и фоном: окно уже нарисовано, значит виден ход дела
-    threading.Thread(target=recorder.load, daemon=True).start()
+
+    def prepare():
+        """Модель грузим последней и фоном: окно уже нарисовано, значит виден ход дела."""
+        recorder.load()
+        if args.files:  # файлы бросили на программу, когда она ещё не работала
+            recorder.transcribe_files(args.files)
+
+    threading.Thread(target=prepare, daemon=True).start()
     window.run()
     print("Выход по команде из лотка")
 

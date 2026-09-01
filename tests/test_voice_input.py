@@ -60,6 +60,8 @@ def _idle_recorder(module):
     rec.asr_model = module.DEFAULT_ASR_MODEL
     rec.model_name = module.DEFAULT_ASR_MODEL
     rec._recognize = lambda audio: "распознано"
+    rec._model = object()  # заглушка: управлению хватает того, что она не None
+    rec._vad = None
     rec.language = "ru"
     return rec
 
@@ -212,9 +214,10 @@ def test_engine_returns_model_name_and_clean_text(monkeypatch, tmp_path):
     )
     monkeypatch.setitem(sys.modules, "onnx_asr", fake_gigaam)
 
-    name, recognize = module.load_engine()
+    name, recognize, model = module.load_engine()
 
     assert name == module.DEFAULT_ASR_MODEL
+    assert model is not None, "саму модель тоже надо отдавать — её просит расшифровка файлов"
     assert recognize(np.zeros(16000, dtype="float32")) == "распознано гигаамом"
 
 
@@ -273,7 +276,7 @@ def test_model_lands_next_to_program(monkeypatch, tmp_path):
     seen: list = []
     _fake_onnx(monkeypatch, seen)
 
-    name, _ = module.load_engine("gigaam-multilingual-ctc")
+    name, _recognize, _model = module.load_engine("gigaam-multilingual-ctc")
 
     assert name == "gigaam-multilingual-ctc"
     expected = tmp_path / "models" / "gigaam-multilingual-ctc"
@@ -336,7 +339,8 @@ def test_successful_switch_is_remembered(monkeypatch, tmp_path):
     monkeypatch.syspath_prepend(str(ROOT))
     rec = _idle_recorder(module)
     rec.language = "ru"
-    monkeypatch.setattr(module, "load_engine", lambda *a: ("gigaam-multilingual-ctc", lambda x: ""))
+    monkeypatch.setattr(module, "load_engine",
+                        lambda *a: ("gigaam-multilingual-ctc", lambda x: "", object()))
 
     assert rec.switch_model("gigaam-multilingual-ctc") is True
 
