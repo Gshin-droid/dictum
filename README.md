@@ -1,344 +1,365 @@
 # Dictum
 
-**Речь в текст на своём компьютере.** Две вещи в одной программе:
+*[Русская версия →](README.ru.md)*
 
-🎤 **Диктовка.** Нажал клавишу — говоришь — текст появляется в том окне, где
-стоял курсор. В любом окне Windows, где можно печатать: письма, заметки,
-сообщения, запросы к нейросетям.
+**Speech to text on your own machine.** Two things in one program:
 
-📄 **Расшифровка записей.** Выбрал в меню аудиофайл — рядом с ним лёг текст.
-Голосовое из мессенджера, диктофонная запись совещания, лекция. Час записи
-разбирается примерно за восемь минут, ограничения на длину нет.
+🎤 **Dictation.** Press a key, speak, and the text appears in whatever window
+your cursor was in. Any Windows window that accepts typing: emails, notes,
+chats, prompts to AI assistants.
 
-Всё происходит на своём компьютере. Аккаунт, подписка и оплата не нужны; после
-установки не нужен даже интернет — ни звук, ни текст никуда не отправляются.
+📄 **File transcription.** Pick an audio file from the menu and the text lands
+next to it. A voice message from a messenger, a recorded meeting, a lecture.
+An hour of audio takes about eight minutes; there is no length limit.
 
-Русскую речь распознаёт **GigaAM v3** от Сбера: сама расставляет запятые и точки,
-пишет «13:15» вместо «тринадцать пятнадцать». В настройках переключается на
-многоязычную модель — казахский, киргизский, узбекский.
+Everything runs locally. No account, no subscription, no payment — and once
+installed, no internet either: neither the audio nor the text leaves the machine.
 
-**Только для Windows** (10 и 11). На macOS и Linux не запустится.
+Russian speech is recognised by **GigaAM v3** from Sber: it punctuates by
+itself and writes "13:15" instead of "thirteen fifteen". The settings menu
+switches to a multilingual model — Kazakh, Kyrgyz, Uzbek.
+
+**Windows only** (10 and 11). It will not start on macOS or Linux.
+
+> **A note on languages.** Dictum recognises Russian, Kazakh, Kyrgyz and Uzbek —
+> not English. The program's own interface and log are in Russian too. This
+> English README exists so that anyone can understand what the project is and
+> how it is built; the code and the design notes in [docs/](docs/) are in Russian.
 
 ---
 
-## Установка
+## Installing
 
-Устанавливать нечего: Python и библиотеки уже внутри. Программа не прописывается
-в систему, не пишет в реестр и не требует прав администратора — её можно положить
-куда угодно, унести на флешке и удалить одним нажатием.
+There is nothing to install: Python and the libraries are already inside. The
+program writes nothing to the registry, needs no administrator rights and
+registers itself nowhere — you can put it anywhere, carry it on a flash drive
+and delete it with one keystroke.
 
-Два способа на выбор.
+Two ways to get it.
 
-### 1. Один файл (60 МБ)
+### 1. A single file (60 MB)
 
-Скачать `dictum.exe`, запустить. **Первый запуск занимает несколько минут** —
-программа скачивает модель распознавания, 216 МБ. Внизу экрана появится полоска
-«первый запуск: качаю модель». Ждать. Модель ляжет в папку `models` рядом с exe,
-и больше этого не повторится: дальше запуск занимает секунды.
+Download `dictum.exe` and run it. **The first launch takes a few minutes** —
+the program downloads the recognition model, 216 MB. A bar saying
+"первый запуск: качаю модель" ("first launch: downloading the model") appears at
+the bottom of the screen. Wait. The model goes into a `models` folder next to the
+exe and never downloads again: subsequent launches take seconds.
 
-### 2. Переносная папка (архив 222 МБ)
+### 2. A portable folder (222 MB archive)
 
-Скачать `dictum-portable.zip`, распаковать, запустить `dictum.exe` изнутри.
-Модель уже лежит внутри — **скачивать нечего, интернет не нужен ни разу**.
-Годится для машины без сети, с медленным или платным интернетом, и для флешки.
+Download `dictum-portable.zip`, unpack it, run `dictum.exe` from inside. The
+model is already there — **nothing to download, no internet needed at all**.
+Good for a machine with no network, a slow or metered connection, or a flash
+drive.
 
-Распаковывать **не в Program Files**: программе нужно право записи рядом с собой.
-Рабочий стол, «Документы» или флешка подойдут.
+Do **not** unpack it into Program Files: the program needs write access next to
+itself. Desktop, Documents or a flash drive will do.
 
-### Синее окно при запуске
+### The blue window on first launch
 
-Windows покажет «Система Windows защитила ваш компьютер». Нажать ссылку
-**«Подробнее»**, под ней появится кнопка **«Выполнить в любом случае»**. Так
-Windows встречает любую программу, которую видит впервые.
+Windows will show "Windows protected your PC". Click the **More info** link, and
+a **Run anyway** button appears underneath. This is how Windows greets any
+program it sees for the first time.
 
-### Проверка антивирусами
+### Antivirus check
 
-Файл из релиза проверен на VirusTotal — это семьдесят антивирусов сразу:
+The release file has been checked on VirusTotal — seventy engines at once:
 
-**[1 находка из 69 →](https://www.virustotal.com/gui/file/26dd4db85e6d2c3139cbc2e046e262c6e0d355a7e88809fda81a7e0045968af0/detection)**
-(Zillya, `Dropper.Agent`). Ни Microsoft, ни Kaspersky, ни ESET, ни Avast,
-ни Dr.Web к файлу претензий не имеют.
+**[1 detection out of 69 →](https://www.virustotal.com/gui/file/26dd4db85e6d2c3139cbc2e046e262c6e0d355a7e88809fda81a7e0045968af0/detection)**
+(Zillya, `Dropper.Agent`). Microsoft, Kaspersky, ESET, Avast and Dr.Web all
+consider the file clean.
 
-Единственная находка — из тех, что малоизвестные движки выдают почти на любую
-программу, собранную упаковщиком PyInstaller, тем более с перехватом клавиатуры.
-Перехват тут настоящий: без него горячая клавиша не работала бы, и он описан
-выше открытым текстом.
+The single detection is the kind that obscure engines produce for almost any
+program packed with PyInstaller, especially one that hooks the keyboard. The
+hook is real: without it the hotkey would not work, and it is described openly
+above.
 
-Отчёт привязан к содержимому файла, а не к чьей-то загрузке. Отпечаток релиза
-`v1.1.0`, его можно сверить у себя командой в PowerShell:
+The report is tied to the file's contents, not to whoever uploaded it. This is
+the fingerprint of release `v1.1.0`; you can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
 # 26DD4DB85E6D2C3139CBC2E046E262C6E0D355A7E88809FDA81A7E0045968AF0
 ```
 
-Не сошлось — значит файл не из релиза, запускать не стоит.
+If it does not match, the file is not from the release and should not be run.
 
-Проверить свою сборку той же командой: `python release_check.py dist\dictum.exe`.
+To check your own build with the same command: `python release_check.py dist\dictum.exe`.
 
-Окна после запуска не появится — программа живёт **значком рядом с часами**. Он
-может прятаться под стрелочкой «Отображать скрытые значки».
+No window opens after launch — the program lives as an **icon next to the
+clock**. It may be hiding under the "Show hidden icons" arrow.
 
 ---
 
-## Как пользоваться
+## Using it
 
-| Действие | Что происходит |
+| Action | What happens |
 |---|---|
-| **F8** | начать запись — внизу экрана всплывает полоска с волной, видно, что микрофон слышит |
-| **F8** ещё раз | распознать и вставить текст туда, где стоял курсор |
-| **Esc** | выбросить запись, ничего не распознавая |
-| левый клик по значку | то же, что F8 |
-| правый клик по значку | настройки |
+| **F8** | start recording — a capsule with a waveform pops up at the bottom of the screen, so you can see the microphone is hearing you |
+| **F8** again | recognise and paste the text where the cursor was |
+| **Esc** | throw the recording away without recognising anything |
+| left click on the icon | same as F8 |
+| right click on the icon | settings |
 
-Текст вставляется в то окно, которое было активным **в момент начала записи**.
-Поэтому перед нажатием F8 нужно поставить курсор туда, где должен появиться
-текст.
+The text is pasted into the window that was active **at the moment recording
+started**. So put the cursor where the text should go before pressing F8.
 
-Дольше двух минут за раз программа записывать не станет — остановится сама. Это
-предохранитель на случай, если забыл выключить.
+The program will not record for longer than two minutes at a stretch — it stops
+by itself. That is a safety catch in case you forgot to switch it off.
 
-### Куда диктовать не получится
+### Where dictation will not work
 
-**В окна, запущенные от имени администратора, обычная программа печатать не
-может.** Это не поломка Dictum и не обходится настройкой — так устроена защита
-Windows: она не пропускает нажатия клавиш от обычной программы к привилегированной.
-Иначе любая программа могла бы подсматривать ввод и подсовывать команды в
-системные окна.
+**An ordinary program cannot type into windows launched as administrator.** This
+is not a Dictum bug and cannot be worked around by configuration — it is how
+Windows protects itself: it does not pass keystrokes from an unprivileged
+program to a privileged one. Otherwise any program could watch what you type
+into system windows and inject commands into them.
 
-Выглядит это так: в Блокноте всё работает, а в окне администратора F8 не
-срабатывает вовсе — ни записи, ни полоски внизу экрана.
+It looks like this: everything works in Notepad, but in an administrator window
+F8 does nothing at all — no recording, no capsule at the bottom of the screen.
 
-Каких окон касается: Диспетчер задач, редактор реестра, командная строка и
-PowerShell, запущенные от администратора, установщики программ, а на рабочих
-компьютерах — часто ещё антивирусы и средства удалённой поддержки.
+Which windows are affected: Task Manager, Registry Editor, Command Prompt and
+PowerShell started as administrator, program installers, and on work machines
+often antivirus consoles and remote-support tools.
 
-**Лечится одним способом: запустить саму диктовку от администратора** — правый
-клик по `dictum.exe` → «Запуск от имени администратора». Тогда она печатает и в
-такие окна.
+**There is exactly one cure: run Dictum itself as administrator** — right-click
+`dictum.exe` → "Run as administrator". Then it types into those windows too.
 
-Чтобы не повторять каждый раз, можно сделать ярлык (правый клик по exe →
-«Создать ярлык»), в его свойствах открыть «Дополнительно» и поставить галочку
-«Запуск от имени администратора». Windows будет спрашивать подтверждение при
-каждом старте — это неизбежно, отключается только ослаблением защиты всей
-системы.
+To avoid doing it every time, make a shortcut (right-click the exe → "Create
+shortcut"), open its properties, click "Advanced" and tick "Run as
+administrator". Windows will ask for confirmation on every start — that is
+unavoidable, and can only be turned off by weakening the protection of the whole
+system.
 
-Обратной проблемы нет: программа с правами администратора печатает и в обычные
-окна тоже. Ограничение работает в одну сторону — снизу вверх.
+There is no problem in the other direction: a program running as administrator
+types into ordinary windows just fine. The restriction only works one way,
+bottom to top.
 
 ---
 
-## Расшифровка готовых записей
+## Transcribing existing recordings
 
-Не диктовка вживую, а разбор того, что уже записано: голосовое из мессенджера,
-диктофонная запись совещания, лекция.
+Not live dictation but working through something already recorded: a voice
+message from a messenger, a recorded meeting, a lecture.
 
-**Правый клик по значку у часов → «Расшифровать аудиофайл…»** — откроется
-обычное окно выбора, можно отметить сразу несколько записей.
+**Right-click the icon next to the clock → "Расшифровать аудиофайл…"
+("Transcribe an audio file…")** — an ordinary file picker opens, and you can
+select several recordings at once.
 
-> **Перетащить файл на значок у часов нельзя.** Область уведомлений Windows
-> файлы не принимает — ни у одной программы, такой возможности в системе просто
-> нет. Перетаскивать можно **на сам файл `dictum.exe`** или на его ярлык: это
-> работает, но значок у часов для этого не годится. Если перетаскивание не нужно,
-> пользуйся меню — способ равноценный.
+> **You cannot drop a file onto the icon next to the clock.** The Windows
+> notification area does not accept files — for any program; the system simply
+> has no such facility. You *can* drop files onto **`dictum.exe` itself** or onto
+> a shortcut to it: that works, but the clock icon is no good for it. If you do
+> not need drag and drop, use the menu — it does exactly the same thing.
 
-Пока идёт разбор, внизу экрана видно, сколько сделано. По готовности текст
-ложится **рядом с записью**, тем же именем и расширением `.txt`, и сразу
-открывается. Файл с таким именем уже есть — новый получит номер: чужой текст не
-затирается никогда.
+While it works, the bottom of the screen shows how much is done. When finished,
+the text lands **next to the recording**, with the same name and a `.txt`
+extension, and opens straight away. If a file with that name already exists, the
+new one gets a number: nothing is ever overwritten.
 
-### Какие файлы читаются
+### Which files can be read
 
-`.wav` · `.mp3` · `.ogg` · `.opus` · `.flac` · `.aiff` · `.caf` — то есть
-голосовые из Telegram и WhatsApp, обычные записи с диктофона и с компьютера.
+`.wav` · `.mp3` · `.ogg` · `.opus` · `.flac` · `.aiff` · `.caf` — which covers
+voice messages from Telegram and WhatsApp and ordinary recordings from a
+dictaphone or a computer.
 
-**`.m4a` не читается** — на этом формате записывает «Диктофон» на iPhone и часть
-андроидов. Его нужно сначала перевести в MP3 или WAV любым конвертером.
-Звук из видео тоже не берётся.
+**`.m4a` is not supported** — that is what the Voice Memos app on iPhone and some
+Android phones records into. It has to be converted to MP3 or WAV first, with any
+converter. Audio inside video files is not taken either.
 
-### Сколько это занимает
+### How long it takes
 
-Ограничения на длину нет: и час, и три часа разберутся. Скорость — примерно в
-восемь раз быстрее реального времени, ровно, без замедления на длинных записях.
+There is no length limit: an hour or three hours will both go through. The speed
+is about eight times faster than real time, steadily, with no slowdown on long
+recordings.
 
-| Длина записи | Сколько ждать |
+| Recording length | Wait |
 |---|---|
-| 2 минуты | ~15 секунд |
-| 10 минут | ~1,5 минуты |
-| 30 минут | ~4 минуты |
-| 1 час | ~8 минут |
+| 2 minutes | ~15 seconds |
+| 10 minutes | ~1.5 minutes |
+| 30 minutes | ~4 minutes |
+| 1 hour | ~8 minutes |
 
-Пока идёт расшифровка, диктовка по клавише не работает — это одна и та же модель,
-и делить её между двумя делами нельзя.
+While a transcription is running, hotkey dictation does not work — it is the same
+model, and it cannot be shared between two jobs.
 
-### Почему текст разбит на абзацы
+### Why the text is broken into paragraphs
 
-Длинную запись программа режет по паузам: модель обучена на кусках до полуминуты
-и на длинном куске молча теряет часть текста. Замер на трёхминутной записи: без
-нарезки — 164 слова, с нарезкой — 275. Ошибки при этом никакой не видно, просто
-сорок процентов текста не появляется.
+A long recording is cut at the pauses: the model was trained on pieces up to
+half a minute, and on a long piece it silently loses part of the text. Measured
+on a three-minute recording: without cutting, 164 words; with cutting, 275. No
+error is shown — forty per cent of the text simply never appears.
 
-Абзац начинается там, где в записи была пауза длиннее двух секунд.
+A new paragraph begins where the recording had a pause longer than two seconds.
 
 ---
 
-## Настройки
+## Settings
 
-Правый клик по значку у часов:
+Right-click the icon next to the clock:
 
-- **Язык и модель** — переключение между тремя моделями. Незнакомая скачается
-  сама, выбор запомнится. Не подошла — вернуться тем же меню.
-- **Сохранять записи на диск** — по умолчанию выключено. Включённым кладёт каждую
-  диктовку в папку `data/dictation` двумя файлами, звук и текст. Нужно, только
-  чтобы сравнить две модели на одной записи; копится ~2 МБ на минуту речи.
-- **Горячая клавиша** — нажать пункт, затем нажать желаемую клавишу. Esc —
-  оставить прежнюю.
-- **О программе** — какая модель и какая клавиша сейчас.
+- **Язык и модель** ("Language and model") — switches between three models. An
+  unfamiliar one downloads itself, and the choice is remembered. Don't like it?
+  Go back through the same menu.
+- **Сохранять записи на диск** ("Save recordings to disk") — off by default. When
+  on, every dictation is written into `data/dictation` as two files, audio and
+  text. Useful only for comparing two models on the same recording; it piles up
+  about 2 MB per minute of speech.
+- **Горячая клавиша** ("Hotkey") — click the item, then press the key you want.
+  Esc keeps the old one.
+- **О программе** ("About") — which model and which key are in use right now.
 
-Выбранное сохраняется в файле `.env` рядом с программой и переживает перезапуск.
+The choices are stored in a `.env` file next to the program and survive a restart.
 
-### Какую модель выбрать
+### Which model to choose
 
-| Модель | Языки | Знаки препинания | Размер |
+| Model | Languages | Punctuation | Size |
 |---|---|---|---|
-| `gigaam-v3-e2e-rnnt` | русский | **да** | 216 МБ |
-| `gigaam-multilingual-ctc` | русский, казахский, киргизский, узбекский | нет | 214 МБ |
-| `gigaam-multilingual-large-ctc` | те же четыре, распознаёт точнее | нет | ~430 МБ |
+| `gigaam-v3-e2e-rnnt` | Russian | **yes** | 216 MB |
+| `gigaam-multilingual-ctc` | Russian, Kazakh, Kyrgyz, Uzbek | no | 214 MB |
+| `gigaam-multilingual-large-ctc` | the same four, more accurate | no | ~430 MB |
 
-Разница по знакам препинания — не мелочь, а разные семейства моделей. Замер на
-одной и той же записи: русская расставила четыре знака, многоязычная ноль — весь
-текст сплошным потоком строчными буквами.
+The punctuation difference is not a detail but two different families of model.
+Measured on one and the same recording: the Russian model placed four marks, the
+multilingual one none — the whole text a single stream in lower case.
 
-Диктуешь по-русски — первая. Нужен казахский — вторая, и мирись с отсутствием
-точек.
-
----
-
-## Как это работает
-
-```
-   микрофон  →  запись в памяти  →  модель  →  текст  →  буфер обмена  →  окно
-   (F8)         числа, 16000          распознаёт        Ctrl+V туда,
-                замеров в секунду     речь              где был курсор
-```
-
-1. **Запись.** Нажатие F8 открывает микрофон. Звук — не «файл», а поток чисел:
-   16 000 замеров громкости в секунду. Они копятся в памяти.
-2. **Распознавание.** Второе нажатие закрывает микрофон и отдаёт накопленные
-   числа модели. Та превращает их в слова и расставляет знаки препинания.
-3. **Вставка.** Готовый текст кладётся в буфер обмена, программа возвращает фокус
-   нужному окну и нажимает Ctrl+V за тебя. Прежнее содержимое буфера через
-   секунду возвращается на место.
-
-У расшифровки файлов путь короче, но с лишним шагом посередине:
-
-```
-   файл  →  привести к 16 кГц  →  нарезать по паузам  →  модель  →  текст рядом
-            телефон пишет 44,1     куски до 25 секунд              с записью, .txt
-```
-
-Нарезка — не ускорение, а условие правильности: на длинном куске модель молча
-теряет часть текста, подробности выше в разделе про абзацы.
-
-Модель **только слышит слова**. Она не понимает смысла и ничего не додумывает:
-скажешь «удали файл» — напишет «удали файл».
-
-Рядом с программой появляются папки `models` (веса модели), `logs` (журнал) и
-файл `.env` (настройки).
+Dictating in Russian: take the first. Need Kazakh: take the second and live
+without full stops.
 
 ---
 
-## Если что-то не работает
+## How it works
 
-**Значка у часов нет, клавиша молчит.** Программа не запустилась. Если она
-падает на старте, то сама покажет окно с ошибкой и назовёт файл журнала. Если
-окна не было — открыть `logs/dictum.log` рядом с exe: первым делом там записана
-обстановка (версия, папка, система, свободное место, какие модели на месте), а
-дальше — что происходило и на чём всё встало.
+```
+   microphone  →  recording in memory  →  model     →  text  →  clipboard  →  window
+   (F8)           numbers, 16000           recognises          Ctrl+V into
+                  samples per second       speech              where the cursor was
+```
 
-Журнал можно открыть из программы: правый клик по значку → **«Показать журнал»**.
-Этот файл и нужно прислать, если разобраться не выходит.
+1. **Recording.** Pressing F8 opens the microphone. The sound is not a "file" but
+   a stream of numbers: 16,000 loudness samples per second, piling up in memory.
+2. **Recognition.** The second press closes the microphone and hands the
+   accumulated numbers to the model, which turns them into words and puts in the
+   punctuation.
+3. **Pasting.** The finished text goes onto the clipboard, the program returns
+   focus to the right window and presses Ctrl+V for you. Whatever was on the
+   clipboard before is put back a second later.
 
-**«Программа уже запущена» — а её нет.** Значок у часов может прятаться под
-стрелочкой «Отображать скрытые значки»: проверить там. Если значка нет и в
-скрытых, посмотреть в журнале строку про порт: программа держит номер 47811 как
-замок от второго запуска, и если его занял кто-то другой, в журнале будет сказано
-прямо. Запуску это больше не мешает — перестанет работать только перетаскивание
-файлов, расшифровка останется в меню.
+File transcription takes a shorter path, with one extra step in the middle:
 
-**Клавиша не срабатывает нигде.** Её мог занять кто-то другой — особенно на
-ноутбуках, где F-клавиши отданы под яркость и громкость. Сменить в меню значка.
+```
+   file  →  resample to 16 kHz  →  cut at the pauses  →  model  →  text next to
+            phones record 44.1      pieces up to 25 s             the recording, .txt
+```
 
-**Клавиша работает в одних окнах, но не в других.** Скорее всего, молчащее окно
-запущено от имени администратора. Проверяется за минуту: нажать клавишу в
-Блокноте, потом в Диспетчере задач (Ctrl+Shift+Esc). Работает в первом и молчит
-во втором — это оно, и лечится оно запуском самой диктовки от администратора.
-Подробно — выше, «Куда диктовать не получится».
+The cutting is not an optimisation but a condition of correctness: on a long
+piece the model silently loses part of the text — see the section on paragraphs
+above.
 
-**Микрофон не найден.** Проверить, что он выбран основным в настройках звука
-Windows.
+The model **only hears words**. It does not understand meaning and invents
+nothing: say "delete the file" and it writes "delete the file".
 
-**Распознаёт медленно.** Скорость зависит от процессора; ориентир — несколько
-секунд на минуту речи. Первое распознавание после запуска всегда дольше
-остальных.
-
-**Текст вставился не туда.** За время диктовки переключились в другое окно —
-текст ушёл в него. Программа возвращает фокус тому окну, которое было активным на
-старте записи.
-
-**Файл не расшифровывается, программа говорит «не читается».** Формат не из
-списка — чаще всего это `.m4a` с iPhone. Перевести в MP3 любым конвертером.
-
-**Перетащил файл на значок у часов, ничего не произошло.** Так и будет: область
-уведомлений Windows файлы не принимает ни у одной программы. Пользуйся меню
-значка либо перетаскивай на сам `dictum.exe`.
-
-**Во время расшифровки не работает клавиша диктовки.** Так и задумано: модель
-одна, и делить её между двумя делами нельзя. Дождаться конца — внизу экрана видно,
-сколько сделано.
+Next to the program appear a `models` folder (the model weights), a `logs`
+folder (the log) and a `.env` file (the settings).
 
 ---
 
-## Из исходников
+## If something does not work
+
+**No icon by the clock, the key does nothing.** The program did not start. If it
+crashes on startup it shows an error window itself and names the log file. If
+there was no window, open `logs/dictum.log` next to the exe: the first thing
+written there is the environment (version, folder, Windows version, free disk
+space, which models are present), and after that what happened and where it
+stopped.
+
+The log can be opened from the program: right-click the icon →
+**"Показать журнал"** ("Show the log"). That is the file to send if you cannot
+work it out.
+
+**"The program is already running" — but it isn't.** The icon by the clock may
+be hiding under the "Show hidden icons" arrow: look there. If it is not among the
+hidden ones either, look in the log for the line about the port: the program
+holds number 47811 as a lock against a second launch, and if someone else has
+taken it, the log says so plainly. This no longer prevents startup — only
+drag-and-drop onto the program stops working, and transcription stays in the menu.
+
+**The key does not work anywhere.** Something else may have taken it — especially
+on laptops, where the F keys are given over to brightness and volume. Change it
+in the icon menu.
+
+**The key works in some windows but not others.** Most likely the silent window
+was started as administrator. It takes a minute to check: press the key in
+Notepad, then in Task Manager (Ctrl+Shift+Esc). Works in the first and silent in
+the second — that's it, and the cure is to run Dictum itself as administrator.
+Details above, in "Where dictation will not work".
+
+**No microphone found.** Check that it is selected as the default device in the
+Windows sound settings.
+
+**Recognition is slow.** The speed depends on the processor; expect a few seconds
+per minute of speech. The first recognition after launch is always slower than
+the rest.
+
+**The text was pasted into the wrong place.** You switched to another window
+while dictating, and the text went there. The program returns focus to whichever
+window was active when the recording started.
+
+**A file will not transcribe, the program says it cannot be read.** The format is
+not on the list — usually `.m4a` from an iPhone. Convert it to MP3 with any
+converter.
+
+**I dropped a file onto the icon by the clock and nothing happened.** That is
+expected: the Windows notification area accepts files for no program at all. Use
+the icon's menu, or drop the file onto `dictum.exe` itself.
+
+**The dictation key does not work during transcription.** That is by design:
+there is one model and it cannot be shared between two jobs. Wait for the end —
+the bottom of the screen shows how much is done.
+
+---
+
+## From source
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe voice_input.py --check   # проверить микрофон и модель
-.\.venv\Scripts\pythonw.exe voice_input.py          # запуск
-.\.venv\Scripts\python.exe -m pytest                # тесты
-.\.venv\Scripts\python.exe build_exe.py             # собрать exe
-.\.venv\Scripts\python.exe build_exe.py --portable  # ещё и переносной архив
-.\.venv\Scripts\python.exe release_check.py dist\dictum.exe   # проверка на VirusTotal
+.\.venv\Scripts\python.exe voice_input.py --check   # check the microphone and the model
+.\.venv\Scripts\pythonw.exe voice_input.py          # run
+.\.venv\Scripts\python.exe -m pytest                # tests
+.\.venv\Scripts\python.exe build_exe.py             # build the exe
+.\.venv\Scripts\python.exe build_exe.py --portable  # and the portable archive too
+.\.venv\Scripts\python.exe release_check.py dist\dictum.exe   # check on VirusTotal
 ```
 
-`release_check.py` спрашивает VirusTotal об отпечатке собранного файла и печатает
-вердикты движков. Загрузка спрятана за отдельный флаг `--upload`: файл остаётся у
-них навсегда, и необратимое действие не должно случаться от простого запуска.
-Ключ читается из переменной окружения `VT_API_KEY`.
+`release_check.py` asks VirusTotal about the fingerprint of the built file and
+prints the engines' verdicts. Uploading is hidden behind a separate `--upload`
+flag: the file stays with them forever, and an irreversible action should not
+happen just because something was run. The key is read from the `VT_API_KEY`
+environment variable.
 
-| Файл | За что отвечает |
+| File | What it does |
 |---|---|
-| `voice_input.py` | Главное: микрофон, распознавание, вставка текста, значок в лотке, горячая клавиша |
-| `transcribe.py` | Расшифровка готовых файлов: чтение звука, нарезка по паузам, склейка абзацев |
-| `voice_window.py` | Только рисование капсулы с волной; про распознавание не знает ничего |
-| `voice_settings.py` | Чтение и запись `.env`: меню меняет одну строку, не портя остальные |
-| `build_exe.py` | Сборка exe |
+| `voice_input.py` | The main one: microphone, recognition, pasting the text, the tray icon, the hotkey |
+| `transcribe.py` | Transcribing existing files: reading the audio, cutting at the pauses, joining paragraphs |
+| `voice_window.py` | Nothing but drawing the capsule with the waveform; knows nothing about recognition |
+| `voice_settings.py` | Reading and writing `.env`: the menu changes one line without spoiling the others |
+| `build_exe.py` | Building the exe |
 
-Разбор решений — в папке [docs/](docs/).
+The reasoning behind the decisions is in [docs/](docs/) — in Russian.
 
 ---
 
-## Автор и лицензии
+## Author and licences
 
-Dictum написал **Gshin-droid**. Исходники открыты:
+Dictum was written by **Gshin-droid**. The source is open:
 <https://github.com/Gshin-droid/dictum>
 
-Код — MIT: пользоваться, менять и раздавать можно свободно, в том числе в
-платных продуктах. Единственное условие — сохранять файл `LICENSE` с указанием
-авторства. Гарантий никаких: программа поставляется как есть.
+The code is MIT: use it, change it and pass it on freely, including in paid
+products. The only condition is to keep the `LICENSE` file with the attribution.
+No warranty of any kind: the program is provided as is.
 
-Модель GigaAM разработана Сбером, лицензия MIT. Библиотека запуска —
-[onnx-asr](https://github.com/istupakov/onnx-asr) Ильи Ступакова, тоже MIT. Ни
-модель, ни библиотека в этот репозиторий не входят: модель скачивается при первом
-запуске, библиотека ставится из `requirements.txt`.
+The GigaAM model was developed by Sber, MIT licence. The runtime library is
+[onnx-asr](https://github.com/istupakov/onnx-asr) by Ilya Stupakov, also MIT.
+Neither the model nor the library is part of this repository: the model is
+downloaded on first launch, the library is installed from `requirements.txt`.

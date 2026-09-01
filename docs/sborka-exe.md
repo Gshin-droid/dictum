@@ -1,5 +1,10 @@
 # Как Dictum собирается в exe и почему именно так
 
+> **In English:** *How Dictum is packed into an exe, and why that way.* Design
+> notes on the build: the five PyInstaller traps that catch anyone packing a
+> Python speech-recognition program into a single file, what was chosen and what
+> was rejected. Russian only — [main README in English](../README.md).
+
 Разбор решений сборки: что выбрано, что отвергнуто и на какие грабли наступает
 всякий, кто пакует Python-программу с распознаванием речи в один файл.
 

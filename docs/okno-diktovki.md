@@ -1,5 +1,10 @@
 # Окно диктовки: почему оно выглядит так
 
+> **In English:** *The dictation window: why it looks the way it does.* Design
+> notes on the capsule that appears while recording — its shape, its acrylic
+> blur, why it sits at the bottom of the screen and why the clickable parts have
+> to be opaque. Russian only — [main README in English](../README.md).
+
 Разбор решений по внешнему виду и поведению капсулы. Сделано в августе 2026.
 
 ## Что было до этого
