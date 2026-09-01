@@ -71,21 +71,21 @@ program it sees for the first time.
 
 The release file has been checked on VirusTotal — seventy engines at once:
 
-**[1 detection out of 69 →](https://www.virustotal.com/gui/file/26dd4db85e6d2c3139cbc2e046e262c6e0d355a7e88809fda81a7e0045968af0/detection)**
-(Zillya, `Dropper.Agent`). Microsoft, Kaspersky, ESET, Avast and Dr.Web all
+**[2 detections out of 69 →](https://www.virustotal.com/gui/file/bf177350e10d87382aba6b00bf2d58edb0df131aaccebb76697fa2b76337f97a/detection)**
+(Bkav and Zillya). Microsoft, Kaspersky, ESET, Avast and Dr.Web all
 consider the file clean.
 
-The single detection is the kind that obscure engines produce for almost any
+Both detections are the kind that obscure engines produce for almost any
 program packed with PyInstaller, especially one that hooks the keyboard. The
 hook is real: without it the hotkey would not work, and it is described openly
 above.
 
 The report is tied to the file's contents, not to whoever uploaded it. This is
-the fingerprint of release `v1.1.0`; you can verify it yourself in PowerShell:
+the fingerprint of release `v1.1.2`; you can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
-# 26DD4DB85E6D2C3139CBC2E046E262C6E0D355A7E88809FDA81A7E0045968AF0
+# BF177350E10D87382ABA6B00BF2D58EDB0DF131AACCEBB76697FA2B76337F97A
 ```
 
 If it does not match, the file is not from the release and should not be run.
