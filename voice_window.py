@@ -15,7 +15,8 @@ import tkinter as tk
 
 W, H = 560, 132
 FOOTER = 44  # высота нижней служебной полосы, она непрозрачная
-RADIUS = 26
+RADIUS = 26  # своё скругление: столько рисуем, когда режем углы сами
+SYSTEM_RADIUS = 8  # столько кладёт Windows 11, под него подгоняем контур
 BOTTOM_MARGIN = 110  # отступ от низа экрана, чтобы не лезть на панель задач
 WAVE_STEP = 6  # шаг между чёрточками волны
 WAVE_PAD = 26
@@ -53,20 +54,58 @@ def chip(canvas, x, y, text, *, font=("Segoe UI", 8), pad=6, tags=()):
     return x2 + pad
 
 
-def enable_acrylic(root) -> bool:
-    """Просит Windows рисовать за окном размытый фон. False — система не умеет."""
+def _hwnd(root) -> int:
+    """Настоящее окно Windows под окном Tk."""
     import ctypes
 
     root.update_idletasks()
-    hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)  # GA_ROOT
+    return ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)  # GA_ROOT
 
-    # не красть фокус (текст вставляется в прежнее окно) и не светиться в таскбаре
+
+def prepare_window(root) -> None:
+    """Не красть фокус (текст вставляется в прежнее окно) и не светиться в таскбаре."""
+    import ctypes
+
     GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW = -20, 0x08000000, 0x00000080
+    hwnd = _hwnd(root)
     current = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
     ctypes.windll.user32.SetWindowLongW(
         hwnd, GWL_EXSTYLE, current | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
     )
 
+
+def round_corners(root) -> bool:
+    """Просит Windows скруглить само окно. False — не умеет (это Windows 10).
+
+    Скруглить своими силами не выходит, и это стоило одной неверной починки.
+    Нарисованный на холсте контур углы не спасает: холст — картинка внутри окна,
+    а окно прямоугольное, и размытый фон Windows кладёт за ним по всему
+    прямоугольнику. Область окна (SetWindowRgn) тоже мимо: у «слоёных» окон,
+    а наше именно такое, система область при отрисовке не смотрит — замер
+    показал угловой пиксель одного цвета с областью и без неё.
+
+    Остаётся попросить саму Windows. Она режет и окно, и свой размытый фон,
+    да ещё со сглаживанием края, которого нам не получить: прозрачность по
+    цвету-ключу полутонов не знает. Плата — радиус назначает система.
+    """
+    import ctypes
+
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND = 33, 2
+    value = ctypes.c_int(DWMWCP_ROUND)
+    try:
+        code = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            _hwnd(root), DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(value), ctypes.sizeof(value)
+        )
+    except Exception:
+        return False
+    return code == 0  # S_OK
+
+
+def enable_acrylic(root) -> bool:
+    """Просит Windows рисовать за окном размытый фон. False — система не умеет."""
+    import ctypes
+
+    hwnd = _hwnd(root)
     try:
         class Accent(ctypes.Structure):
             _fields_ = [("state", ctypes.c_int), ("flags", ctypes.c_int),
@@ -103,15 +142,21 @@ class VoiceWindow:
         self.root.geometry(self._geometry())
         self.canvas = tk.Canvas(self.root, width=W, height=H, bg=KEY, highlightthickness=0)
         self.canvas.pack()
+        prepare_window(self.root)
 
-        self.glass = enable_acrylic(self.root)
-        if self.glass:
-            self.root.config(bg=KEY)
-            self.root.attributes("-transparentcolor", KEY)
-        else:  # без размытия рисуем матовую чёрную капсулу
-            self.root.config(bg=SOLID_BG)
-            self.canvas.config(bg=SOLID_BG)
-            self.root.attributes("-alpha", 0.96)
+        # Порядок не случаен: стекло допустимо только там, где система умеет
+        # скруглить окно. Иначе размытый фон зальёт углы квадратом поверх любого
+        # нарисованного контура — так и было до 1.1.2. Оговорка в правиле не
+        # помогла бы: «and» делает эту пару неразрывной, забыть её нельзя.
+        self.system_rounded = round_corners(self.root)
+        self.glass = self.system_rounded and enable_acrylic(self.root)
+
+        # со стеклом радиус диктует Windows, без него рисуем свой, задуманный
+        self.radius = SYSTEM_RADIUS if self.glass else RADIUS
+        # прозрачные углы нужны обеим отделкам: у стекла сквозь них видно размытие,
+        # у матовой — рабочий стол, и только так своё скругление вообще видно
+        self.root.config(bg=KEY)
+        self.root.attributes("-transparentcolor", KEY)
 
         self._build()
         self.root.withdraw()
@@ -127,11 +172,12 @@ class VoiceWindow:
     def _build(self) -> None:
         c = self.canvas
         body = KEY if self.glass else SOLID_BG
-        rounded(c, 1, 1, W - 1, H - 1, RADIUS, fill=body, outline=EDGE)
+        r = self.radius
+        rounded(c, 1, 1, W - 1, H - 1, r, fill=body, outline=EDGE)
         # нижняя полоса непрозрачная: сквозь прозрачные пиксели мышь проваливается,
         # а «Стоп» и «Отмена» должны нажиматься
-        rounded(c, 1, H - FOOTER, W - 1, H - 1, RADIUS, fill=FOOTER_BG, outline="")
-        c.create_rectangle(1, H - FOOTER, W - 1, H - FOOTER + RADIUS, fill=FOOTER_BG, outline="")
+        rounded(c, 1, H - FOOTER, W - 1, H - 1, r, fill=FOOTER_BG, outline="")
+        c.create_rectangle(1, H - FOOTER, W - 1, H - FOOTER + r, fill=FOOTER_BG, outline="")
 
         mid = (H - FOOTER) / 2 + 4
         self.bars = [
@@ -248,6 +294,27 @@ class VoiceWindow:
         self.root.mainloop()
 
 
+def check_corners(win) -> None:
+    """Смотрит на угловой пиксель живого окна: тела капсулы там быть не должно.
+
+    Проверять на глаз нельзя, и это выяснилось дорого. Квадратные углы видны
+    только на светлом фоне, а разработчик смотрит в тёмное окно — поломка
+    прожила три версии. Хуже того, первая починка «прошла» ложно: она
+    спрашивала Windows, задана ли область окна, Windows отвечала «да», а
+    рисовать по ней всё равно не рисовала. Отчёт был, действия не было.
+    Поэтому спрашивать надо не о намерении, а о том, что на экране.
+    """
+    from PIL import ImageGrab  # нужен только для самопроверки, в программу не входит
+
+    win.root.update()
+    x, y = win.root.winfo_x(), win.root.winfo_y()
+    shot = ImageGrab.grab((x, y, x + W, y + H), all_screens=True)
+    corner, body = shot.getpixel((2, 2)), shot.getpixel((W // 2, 20))
+    assert corner != body, f"угол одного цвета с телом капсулы {body} — скругления нет"
+    print(f"углы: скругление {'системное' if win.system_rounded else 'своё, по цвету-ключу'}, "
+          f"стекло: {'да' if win.glass else 'нет'}; угол {corner}, тело {body}")
+
+
 def demo() -> None:
     """Самопроверка без микрофона: прогоняет окно по состояниям."""
     import math
@@ -270,6 +337,9 @@ def demo() -> None:
 
     rec = FakeRecorder()
     win = VoiceWindow(rec, "f8")
+    win.visible = True
+    win.root.deiconify()
+    check_corners(win)
 
     def feed():
         rec.t += 1

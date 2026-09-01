@@ -12,6 +12,12 @@ chats, prompts to AI assistants.
 next to it. A voice message from a messenger, a recorded meeting, a lecture.
 An hour of audio takes about eight minutes; there is no length limit.
 
+![The Dictum capsule during dictation](docs/img/okno.png)
+
+*While you speak, a capsule floats at the bottom of the screen: the waveform
+shows the microphone is hearing you, and the keys to stop and to cancel are
+right there.*
+
 Everything runs locally. No account, no subscription, no payment — and once
 installed, no internet either: neither the audio nor the text leaves the machine.
 
