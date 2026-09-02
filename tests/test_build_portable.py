@@ -107,3 +107,22 @@ def test_download_leftovers_stay_out_of_the_archive(monkeypatch, tmp_path):
     assert not (folder / "models" / module.DEFAULT_MODEL / ".cache").exists()
     assert (folder / "models" / module.DEFAULT_MODEL / "encoder.int8.onnx").exists(), \
         "сами веса при этом должны остаться на месте"
+
+
+def test_stale_portable_copy_does_not_survive_a_rebuild(monkeypatch, tmp_path):
+    """Пересобрали exe — прежняя переносная копия становится копией не того файла.
+
+    Пока она лежит в dist, её можно выложить по ошибке: внутри архива всё
+    выглядит одинаково, отличается только дата. Так и случилось с 1.1.2.
+    """
+    out = tmp_path / "dist"
+    module = _load(monkeypatch, out)
+    _fake_release(out, module)
+    module.portable()
+    assert (out / f"{module.NAME}-portable.zip").exists()
+
+    module.drop_portable()
+
+    assert not (out / f"{module.NAME}-portable.zip").exists()
+    assert not (out / f"{module.NAME}-portable").exists()
+    assert (out / f"{module.NAME}.exe").exists(), "сам exe трогать не за что"

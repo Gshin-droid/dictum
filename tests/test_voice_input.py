@@ -638,3 +638,25 @@ def test_huge_log_is_set_aside(monkeypatch, tmp_path):
 
     assert (logs / "dictum.old.log").exists(), "старый журнал должен сохраниться рядом"
     assert (logs / "dictum.log").stat().st_size == 0, "новый начинается с чистого листа"
+
+
+def test_import_does_not_hijack_output_and_errors():
+    """Импорт ради констант не должен подменять чужой вывод и ставить окно на ошибки.
+
+    Ловушка ошибок показывает модальное окно и ждёт клика. Установленная при
+    импорте, она замораживала сборку: ошибка в build_exe.py вместо трассировки
+    в консоли выводила окно, а вывод сборки уходил в журнал программы.
+    """
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent
+    proba = subprocess.run(
+        [_sys.executable, "-c",
+         "import sys; before = sys.excepthook;"
+         " import voice_input;"
+         " print('hijacked' if sys.excepthook is not before else 'clean')"],
+        cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert "clean" in proba.stdout, proba.stdout + proba.stderr

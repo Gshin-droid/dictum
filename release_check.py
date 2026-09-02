@@ -1,4 +1,7 @@
-"""Проверка собранного exe на VirusTotal перед раздачей людям.
+"""Проверка собранного exe перед раздачей людям.
+
+Сначала сверяет своё: не старше ли exe исходников и тот ли exe лежит в
+переносном архиве. Не сошлось — отказ, до VirusTotal дело не доходит.
 
     .venv\\Scripts\\python.exe release_check.py dist\\dictum.exe            только посмотреть
     .venv\\Scripts\\python.exe release_check.py dist\\dictum.exe --upload   можно и загрузить
@@ -28,12 +31,19 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import zipfile
+import zlib
 from pathlib import Path
 
 API = "https://www.virustotal.com/api/v3"
 DIRECT_UPLOAD_LIMIT = 32 * 1024 * 1024  # больше — только через отдельный адрес
 POLL_SECONDS = 20  # бесплатный тариф: 4 запроса в минуту, чаще спрашивать нельзя
 POLL_ATTEMPTS = 30  # то есть ждём результат до десяти минут
+
+ROOT = Path(__file__).resolve().parent
+# Исходники программы. Exe, собранный раньше любого из них, — не тот, что правили.
+SOURCES = ("voice_input.py", "voice_window.py", "voice_settings.py", "transcribe.py",
+           "build_exe.py")
 
 
 def api_key() -> str:
@@ -64,6 +74,60 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: f.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def crc32(path: Path) -> int:
+    """Контрольная сумма файла. Zip хранит такую же для каждой записи внутри —
+    поэтому сверить exe с exe в архиве можно, не распаковывая архив."""
+    value = 0
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            value = zlib.crc32(block, value)
+    return value
+
+
+def same_build(exe: Path) -> None:
+    """Отказ, если раздаваемые файлы разошлись между собой или с исходником.
+
+    Два расхождения, которые глазами не видны вовсе, а по датам файлов заметны
+    только если знать, куда смотреть:
+
+    1. exe собран до последней правки кода — раздаём не то, что написали;
+    2. в переносном архиве лежит exe от прежней сборки — а качают чаще архив.
+
+    Про версию отдельно спрашивать нечего: номер попадает в exe из APP_VERSION
+    при сборке. Exe не старше исходников — значит и версия в нём оттуда же.
+    Спросить сам exe нельзя: у оконной сборки --version печатает в никуда.
+
+    Проверка стоит до вопроса VirusTotal: незачем спрашивать про файл, который
+    в выпуск всё равно не пойдёт.
+    """
+    built = exe.stat().st_mtime
+    stale = [name for name in SOURCES
+             if (ROOT / name).is_file() and (ROOT / name).stat().st_mtime > built]
+    if stale:
+        sys.exit(
+            f"{exe.name} собран раньше, чем правили {', '.join(stale)}.\n"
+            "Пересобрать: .venv\\Scripts\\python.exe build_exe.py"
+        )
+
+    archive = exe.with_name(f"{exe.stem}-portable.zip")
+    if not archive.is_file():
+        print(f"Переносной копии рядом нет ({archive.name}) — сверять не с чем.\n")
+        return
+
+    inside = f"{exe.stem}-portable/{exe.name}"
+    with zipfile.ZipFile(archive) as pack:
+        try:
+            packed = pack.getinfo(inside).CRC
+        except KeyError:
+            sys.exit(f"В {archive.name} нет {inside} — архив собран не тем скриптом.")
+    if packed != crc32(exe):
+        sys.exit(
+            f"В {archive.name} лежит другой {exe.name} — копия от прежней сборки.\n"
+            "Пересобрать: .venv\\Scripts\\python.exe build_exe.py"
+        )
+    print(f"Исходники не новее сборки, в архиве тот же {exe.name}.\n")
 
 
 def multipart(field: str, filename: str, payload: bytes) -> tuple[bytes, str]:
@@ -159,6 +223,7 @@ def main() -> None:
     if not args.file.is_file():
         sys.exit(f"Нет файла {args.file}")
 
+    same_build(args.file)
     key = api_key()
     digest = sha256(args.file)
     print(f"{args.file.name}: {args.file.stat().st_size / 1e6:.0f} МБ")

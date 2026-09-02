@@ -111,3 +111,78 @@ def test_missing_key_stops_with_instructions(monkeypatch):
     with pytest.raises(SystemExit) as stop:
         module.api_key()
     assert "SetEnvironmentVariable" in str(stop.value)
+
+
+def _fake_dist(tmp_path: Path, exe_bytes: bytes, packed_bytes: bytes | None = None) -> Path:
+    """Собирает подобие dist: exe и переносный архив с exe внутри."""
+    import zipfile
+
+    dist = tmp_path / "dist"
+    dist.mkdir(exist_ok=True)
+    exe = dist / "dictum.exe"
+    exe.write_bytes(exe_bytes)
+    if packed_bytes is not None:
+        with zipfile.ZipFile(dist / "dictum-portable.zip", "w") as pack:
+            pack.writestr("dictum-portable/dictum.exe", packed_bytes)
+            pack.writestr("dictum-portable/Прочти меня.txt", "инструкция")
+    return exe
+
+
+def test_archive_with_a_different_exe_stops_the_release(tmp_path, monkeypatch):
+    """Ровно тот случай 1.1.2: exe пересобрали, а архив остался от прежней сборки."""
+    module = _load()
+    monkeypatch.setattr(module, "SOURCES", ())  # свежесть проверяется отдельным тестом
+    exe = _fake_dist(tmp_path, "новая сборка".encode(), "сборка от прошлого выпуска".encode())
+
+    with pytest.raises(SystemExit) as stop:
+        module.same_build(exe)
+    assert "от прежней сборки" in str(stop.value)
+
+
+def test_matching_archive_passes(tmp_path, monkeypatch):
+    module = _load()
+    monkeypatch.setattr(module, "SOURCES", ())
+    exe = _fake_dist(tmp_path, "одна и та же сборка".encode(), "одна и та же сборка".encode())
+
+    module.same_build(exe)  # молча пропускает — значит сошлось
+
+
+def test_archive_without_the_exe_stops_the_release(tmp_path, monkeypatch):
+    """Архив не той раскладки выкладывать нельзя: человек распакует и не найдёт программу."""
+    import zipfile
+
+    module = _load()
+    monkeypatch.setattr(module, "SOURCES", ())
+    exe = _fake_dist(tmp_path, "сборка".encode())
+    with zipfile.ZipFile(exe.parent / "dictum-portable.zip", "w") as pack:
+        pack.writestr("dictum.exe", "сборка".encode())  # без папки внутри
+
+    with pytest.raises(SystemExit) as stop:
+        module.same_build(exe)
+    assert "собран не тем скриптом" in str(stop.value)
+
+
+def test_exe_older_than_the_sources_stops_the_release(tmp_path, monkeypatch):
+    """Забыли пересобрать после правки — раздали бы не то, что написали."""
+    module = _load()
+    exe = _fake_dist(tmp_path, "сборка".encode())
+    source = tmp_path / "voice_input.py"
+    source.write_text("APP_VERSION = '9.9.9'", encoding="utf-8")
+    import os
+    os.utime(source, (exe.stat().st_mtime + 60, exe.stat().st_mtime + 60))
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "SOURCES", ("voice_input.py",))
+
+    with pytest.raises(SystemExit) as stop:
+        module.same_build(exe)
+    assert "voice_input.py" in str(stop.value)
+
+
+def test_missing_archive_is_not_a_refusal(tmp_path, monkeypatch, capsys):
+    """Выложить один exe без переносной копии — законный случай, отказывать не за что."""
+    module = _load()
+    monkeypatch.setattr(module, "SOURCES", ())
+    exe = _fake_dist(tmp_path, "сборка".encode())
+
+    module.same_build(exe)
+    assert "сверять не с чем" in capsys.readouterr().out

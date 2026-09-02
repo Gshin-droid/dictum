@@ -86,7 +86,7 @@ APP_NAME = "Dictum"
 # Три числа: ломающее изменение . новые возможности . исправления.
 # Единственное место, где версия записана: отсюда её берут «О программе», журнал
 # и свойства exe, которые показывает проводник Windows.
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 APP_TAGLINE = f"{APP_NAME} — голосовая диктовка"
 APP_AUTHOR = "Gshin-droid"
 APP_URL = "github.com/Gshin-droid/dictum"
@@ -187,19 +187,26 @@ def report_crash(kind, value, trace) -> None:
     )
 
 
-# В сборке PyInstaller без консоли sys.stdout не пустой, а заглушка, молча
-# глотающая вывод, — поэтому проверяем признак сборки, а не только пустоту.
-if getattr(sys, "frozen", False) or sys.stdout is None or sys.stderr is None:
-    sys.stdout = sys.stderr = _Stamped(open_log())
-else:
-    # консоль Windows живёт в cp1251: без этого любой ✅ в выводе роняет процесс
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+# Журнал и ловушка ошибок ставятся, только когда voice_input запущен как
+# программа, — при импорте не ставятся. Сборщик и тесты импортируют его ради
+# пары констант, и получать в нагрузку чужой журнал вместо своего вывода и
+# модальное окно вместо трассировки им незачем. Однажды это уже стоило десяти
+# минут: ошибка в build_exe.py показала окно и заморозила сборку до клика по
+# нему, а весь вывод сборки ушёл в журнал программы.
+if __name__ == "__main__":
+    # В сборке PyInstaller без консоли sys.stdout не пустой, а заглушка, молча
+    # глотающая вывод, — поэтому проверяем признак сборки, а не только пустоту.
+    if getattr(sys, "frozen", False) or sys.stdout is None or sys.stderr is None:
+        sys.stdout = sys.stderr = _Stamped(open_log())
+    else:
+        # консоль Windows живёт в cp1251: без этого любой ✅ в выводе роняет процесс
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-sys.excepthook = report_crash
-threading.excepthook = lambda args: report_crash(
-    args.exc_type, args.exc_value, args.exc_traceback
-)
+    sys.excepthook = report_crash
+    threading.excepthook = lambda args: report_crash(
+        args.exc_type, args.exc_value, args.exc_traceback
+    )
 
 
 def describe_environment() -> str:

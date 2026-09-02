@@ -71,7 +71,7 @@ program it sees for the first time.
 
 The release file has been checked on VirusTotal — seventy engines at once:
 
-**[2 detections out of 69 →](https://www.virustotal.com/gui/file/bf177350e10d87382aba6b00bf2d58edb0df131aaccebb76697fa2b76337f97a/detection)**
+**[2 detections out of 69 →](https://www.virustotal.com/gui/file/4d2597de594cf19e12a7b83264a14586d16c6584924f61a758be6ec78b36e07a/detection)**
 (Bkav and Zillya). Microsoft, Kaspersky, ESET, Avast and Dr.Web all
 consider the file clean.
 
@@ -80,12 +80,24 @@ program packed with PyInstaller, especially one that hooks the keyboard. The
 hook is real: without it the hotkey would not work, and it is described openly
 above.
 
+Further down the same page are sections with community rules — YARA and Sigma.
+These are not antivirus engines, they do not affect the detection count, and the
+red HIGH badge does not mean what it looks like. One rule simply identifies the
+packer and states itself that a match does not imply malice. A second fires on
+loading `vcruntime140.dll` from outside the system folder, a third on any
+executable file being created. Both come down to the same thing: a one-file
+build unpacks its 228 libraries into a temporary folder at every start and loads
+them from there. The trait is real, the intent is not — there is no other way to
+ship a single self-contained exe. The mention of APT29 in the rule's description
+explains why the technique matters in general; it says nothing about this
+program.
+
 The report is tied to the file's contents, not to whoever uploaded it. This is
-the fingerprint of release `v1.1.2`; you can verify it yourself in PowerShell:
+the fingerprint of release `v1.1.3`; you can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
-# BF177350E10D87382ABA6B00BF2D58EDB0DF131AACCEBB76697FA2B76337F97A
+# 4D2597DE594CF19E12A7B83264A14586D16C6584924F61A758BE6EC78B36E07A
 ```
 
 If it does not match, the file is not from the release and should not be run.

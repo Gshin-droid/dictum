@@ -1,6 +1,7 @@
 """Сборка Dictum в один exe.
 
-    .venv\\Scripts\\python.exe build_exe.py
+    .venv\\Scripts\\python.exe build_exe.py              выпуск: exe и переносная копия
+    .venv\\Scripts\\python.exe build_exe.py --only-exe   отладка: быстро, без архива
 
 На выходе — dist/dictum.exe, один файл на 62 МБ. Веса модели внутрь НЕ
 вшиваются намеренно: они весят 216 МБ, а однофайловая сборка распаковывает всё
@@ -9,6 +10,8 @@
 папку models рядом с exe.
 """
 
+import ast
+import os
 import shutil
 import subprocess
 import sys
@@ -18,6 +21,11 @@ ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
 OUT = ROOT / "dist"
 NAME = "dictum"
+WINDOWS = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+# Откуда файлам попадать в exe можно: наш проект с его окружением, сам Python и
+# система. Всё прочее — посторонний пакет, случайно оказавшийся в PATH.
+ALLOWED_SOURCES = (ROOT, Path(sys.executable).resolve().parent.parent,
+                   Path(sys.base_prefix), WINDOWS)
 DEFAULT_MODEL = "gigaam-v3-e2e-rnnt"  # её и кладём в переносную копию
 VAD_MODEL = "silero-vad"  # нарезчик длинных записей; без него расшифровка полезет в сеть
 # Бухгалтерия качалки: остаётся в папке весов после скачивания и работе не нужна.
@@ -90,6 +98,53 @@ def stop_running() -> None:
     )
 
 
+def clean_path() -> str:
+    """PATH для сборки: только система и наше окружение.
+
+    Зависимые библиотеки PyInstaller ищет там же, где их искала бы Windows, —
+    то есть и в PATH. У постороннего пакета папка может стоять в PATH раньше
+    System32, и тогда его файлы уезжают в наш exe. Так в выпуск 1.1.2 попали
+    47 библиотек рантайма Microsoft из Eclipse Adoptium JDK 17: подлинные и
+    подписанные, но сборка начинала зависеть от того, что ещё стоит на машине.
+    Снеси JDK — и exe соберётся из других файлов.
+
+    Список разрешённого, а не запрещённого: перечислять чужие пакеты пришлось
+    бы вечно, а сборке нужны всего три места.
+    """
+    keep = [WINDOWS / "System32", WINDOWS, WINDOWS / "System32" / "Wbem",
+            Path(sys.executable).resolve().parent]
+    return os.pathsep.join(str(path) for path in keep)
+
+
+def check_origins(toc: Path) -> None:
+    """Отказ, если в exe уехал файл из постороннего пакета.
+
+    Сторож на случай, если clean_path однажды перестанет работать — например,
+    PyInstaller сменит порядок поиска. Без него поломка была бы тихой: exe
+    собрался, ошибки нет, а внутри чужие файлы. Список того, что вошло в
+    сборку, PyInstaller оставляет сам — здесь он и проверяется.
+    """
+    # В файле длинный кортеж со служебными полями; нужен единственный список
+    # записей вида (имя, откуда взят, тип). Ищем по форме, а не по номеру:
+    # состав кортежа от версии PyInstaller к версии меняется.
+    parts = ast.literal_eval(toc.read_text(encoding="utf-8"))
+    entries = next(part for part in parts
+                   if isinstance(part, list) and part and isinstance(part[0], tuple))
+    roots = [os.path.normcase(str(root)) + os.sep for root in ALLOWED_SOURCES]
+    strangers = sorted({
+        source for _, source, _ in entries
+        if source and not any(os.path.normcase(source).startswith(root) for root in roots)
+    })
+    if strangers:
+        raise SystemExit(
+            "В сборку попали файлы из посторонних мест:\n  "
+            + "\n  ".join(strangers[:10])
+            + (f"\n  ...и ещё {len(strangers) - 10}" if len(strangers) > 10 else "")
+            + "\nОни нашлись через PATH. Проверить clean_path()."
+        )
+    print(f"происхождение: все {len(entries)} файлов из своего окружения и системы")
+
+
 def build(icon: Path, version_file: Path) -> None:
     args = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
@@ -119,7 +174,8 @@ def build(icon: Path, version_file: Path) -> None:
     args.append(str(ROOT / "voice_input.py"))
 
     print("собираю exe, это займёт минуту-две...")
-    subprocess.run(args, check=True)
+    subprocess.run(args, check=True, env={**os.environ, "PATH": clean_path()})
+    check_origins(BUILD / NAME / "PKG-00.toc")
 
 
 READ_ME_FIRST = """Dictum — голосовая диктовка
@@ -219,7 +275,26 @@ def portable() -> Path:
     return Path(archive)
 
 
+def drop_portable() -> None:
+    """Стирает переносную копию, оставшуюся от прежней сборки.
+
+    Копия — это тот же dictum.exe, только с моделью рядом. После пересборки exe
+    она превращается в копию уже не того файла, и отличить её от свежей можно
+    лишь по дате: внутри архива всё выглядит одинаково. Так в выпуск 1.1.2 чуть
+    не уехал архив от 1.1.1 — расхождение заметили случайно.
+
+    Поэтому старая копия не остаётся лежать вовсе: расходиться нечему.
+    """
+    shutil.rmtree(OUT / f"{NAME}-portable", ignore_errors=True)
+    (OUT / f"{NAME}-portable.zip").unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
+    # Переносная копия собирается по умолчанию, а не по флагу. Флаг забывают —
+    # и забытый флаг оставлял в dist архив от прежней сборки. Теперь забывчивость
+    # даёт полный комплект, а урезанная сборка требует сказать это вслух.
+    only_exe = "--only-exe" in sys.argv
+
     icon_path = BUILD / f"{NAME}.ico"
     version_path = BUILD / "version_info.txt"
     icon_path.parent.mkdir(parents=True, exist_ok=True)
@@ -227,11 +302,15 @@ if __name__ == "__main__":
     make_icon(icon_path)
     make_version_file(version_path)
     build(icon_path, version_path)
+    drop_portable()  # что бы ни лежало в dist, оно теперь от прежнего exe
     exe = OUT / f"{NAME}.exe"
     print(f"\nготово: {exe}  ({exe.stat().st_size / 1e6:.0f} МБ)")
     print("модель качается сама при первом запуске, рядом с exe появится папка models")
 
-    if "--portable" in sys.argv:
+    if only_exe:
+        print("\nпереносной копии нет: сборка отладочная (--only-exe).")
+        print("для выпуска запустить без флага — соберётся и архив")
+    else:
         archive = portable()
         print(f"\nпереносная копия: {archive}  ({archive.stat().st_size / 1e6:.0f} МБ)")
         print("распаковал, кликнул dictum.exe — работает, качать нечего")
