@@ -126,3 +126,46 @@ def test_stale_portable_copy_does_not_survive_a_rebuild(monkeypatch, tmp_path):
     assert not (out / f"{module.NAME}-portable.zip").exists()
     assert not (out / f"{module.NAME}-portable").exists()
     assert (out / f"{module.NAME}.exe").exists(), "сам exe трогать не за что"
+
+
+def _stop_with(module, monkeypatch, printed: str) -> bool:
+    """Прогон stop_running с подставным ответом PowerShell — настоящий убил бы
+    работающую у человека программу прямо посреди прогона тестов."""
+    import types
+
+    monkeypatch.setattr(module.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(stdout=printed, returncode=0))
+    return module.stop_running()
+
+
+def test_stop_running_says_whether_program_was_up(monkeypatch, tmp_path):
+    """От этого ответа зависит, поднимут ли программу обратно после сборки."""
+    module = _load(monkeypatch, tmp_path / "dist")
+    assert _stop_with(module, monkeypatch, "2\n") is True, "два процесса — программа работала"
+    assert _stop_with(module, monkeypatch, "0\n") is False
+    assert _stop_with(module, monkeypatch, "\n") is False, "пустой ответ — тоже не работала"
+
+
+def test_start_again_launches_the_built_exe(monkeypatch, tmp_path):
+    """Сборка гасит программу ради перезаписи файла и обязана вернуть её на место."""
+    out = tmp_path / "dist"
+    module = _load(monkeypatch, out)
+    _fake_release(out, module)
+    launched = []
+    monkeypatch.setattr(module.subprocess, "Popen", lambda args, **k: launched.append(args))
+
+    module.start_again()
+
+    assert launched, "программу не подняли — человек остался без диктовки"
+    assert str(out / f"{module.NAME}.exe") in launched[0]
+
+
+def test_start_again_without_exe_stays_quiet(monkeypatch, tmp_path):
+    """Сборка не дошла до exe — поднимать нечего, но и падать второй раз незачем."""
+    out = tmp_path / "dist"
+    out.mkdir(parents=True)
+    module = _load(monkeypatch, out)
+    monkeypatch.setattr(module.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("запускать было нечего"))
+
+    module.start_again()

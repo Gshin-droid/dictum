@@ -89,13 +89,37 @@ def make_version_file(path: Path) -> None:
     print(f"паспорт файла: {APP_NAME} {APP_VERSION}")
 
 
-def stop_running() -> None:
-    """Работающий exe держит сам себя — без остановки пересборка падает на «отказано в доступе»."""
-    subprocess.run(
+def stop_running() -> bool:
+    """Гасит работающую программу и говорит, была ли она запущена.
+
+    Гасить приходится: работающий exe держит сам себя, и пересборка падает на
+    «отказано в доступе». А вот ответ нужен, чтобы в конце поднять её обратно —
+    см. start_again.
+    """
+    answer = subprocess.run(
         ["powershell", "-NoProfile", "-Command",
-         f"Get-Process {NAME} -ErrorAction SilentlyContinue | Stop-Process -Force"],
-        check=False, capture_output=True,
+         f"$found = @(Get-Process {NAME} -ErrorAction SilentlyContinue);"
+         " $found | Stop-Process -Force; $found.Count"],
+        check=False, capture_output=True, text=True,
     )
+    return answer.stdout.strip() not in ("", "0")
+
+
+def start_again() -> None:
+    """Поднимает программу обратно, если сборка её погасила.
+
+    Без этого каждая сборка молча оставляла машину без диктовки: программа живёт
+    значком у часов, окна у неё нет, и заметить пропажу можно только по тому,
+    что перестала работать горячая клавиша. Так и вышло дважды подряд.
+
+    Сборка обязана вернуть машину в то состояние, в котором её взяла.
+    """
+    exe = OUT / f"{NAME}.exe"
+    if not exe.is_file():  # сборка не дошла до exe — поднимать нечего
+        print("поднять программу обратно не вышло: exe нет")
+        return
+    subprocess.Popen([str(exe)], cwd=str(OUT), close_fds=True)
+    print(f"программа поднята обратно: {exe}")
 
 
 def clean_path() -> str:
@@ -298,10 +322,18 @@ if __name__ == "__main__":
     icon_path = BUILD / f"{NAME}.ico"
     version_path = BUILD / "version_info.txt"
     icon_path.parent.mkdir(parents=True, exist_ok=True)
-    stop_running()
-    make_icon(icon_path)
-    make_version_file(version_path)
-    build(icon_path, version_path)
+    # Работала — обязана работать и после. try/finally, а не строка в конце:
+    # иначе упавшая сборка оставляет машину без диктовки, и это как раз тот
+    # случай, когда человек узнаёт о пропаже сам, по неработающей клавише.
+    was_running = stop_running()
+    try:
+        make_icon(icon_path)
+        make_version_file(version_path)
+        build(icon_path, version_path)
+    finally:
+        if was_running:
+            start_again()
+
     drop_portable()  # что бы ни лежало в dist, оно теперь от прежнего exe
     exe = OUT / f"{NAME}.exe"
     print(f"\nготово: {exe}  ({exe.stat().st_size / 1e6:.0f} МБ)")
