@@ -42,7 +42,8 @@ program writes nothing to the registry, needs no administrator rights and
 registers itself nowhere — you can put it anywhere, carry it on a flash drive
 and delete it with one keystroke.
 
-Two ways to get it.
+Three builds to choose from — the same program, differing only in what is
+already inside.
 
 ### 1. A single file (60 MB)
 
@@ -62,6 +63,19 @@ drive.
 Do **not** unpack it into Program Files: the program needs write access next to
 itself. Desktop, Documents or a flash drive will do.
 
+### 3. A portable folder with Kazakh (599 MB archive)
+
+Download `dictum-portable-kazahskiy.zip`. The same as the second one plus the
+multilingual model and punctuation for it: Kazakh, Kyrgyz, Uzbek. The
+multilingual model is preselected, so you can start dictating right away.
+
+The Russian model is in there as well — switching to it from the tray menu
+downloads nothing.
+
+The archive is large because it carries three sets of weights instead of one.
+If you have internet, it is simpler to take `dictum.exe` and add Kazakh from the
+menu: the program downloads what is missing by itself.
+
 ### The blue window on first launch
 
 Windows will show "Windows protected your PC". Click the **More info** link, and
@@ -72,14 +86,40 @@ program it sees for the first time.
 
 The release file has been checked on VirusTotal — seventy engines at once:
 
-**[2 detections out of 69 →](https://www.virustotal.com/gui/file/4d2597de594cf19e12a7b83264a14586d16c6584924f61a758be6ec78b36e07a/detection)**
-(Bkav and Zillya). Microsoft, Kaspersky, ESET, Avast and Dr.Web all
-consider the file clean.
+**[3 detections out of 69 →](https://www.virustotal.com/gui/file/9fd8bbec99633bbda88d3e04cd66c5469965ea72ae973345e030c90c1731128e/detection)**
+— Bkav, Zillya and Microsoft. Kaspersky, ESET, Avast and Dr.Web consider the
+file clean.
 
-Both detections are the kind that obscure engines produce for almost any
-program packed with PyInstaller, especially one that hooks the keyboard. The
-hook is real: without it the hotkey would not work, and it is described openly
-above.
+**Release 1.1.3 had two detections and Microsoft was not among them.** There is
+no point hiding that, but it is worth explaining, because the cause is known.
+
+Microsoft's verdict is `Program:Win32/Wacapew.C!ml`. The `!ml` suffix means
+"machine learning": not a match against a known virus, but a trained model's
+opinion that the file resembles suspicious ones. The `Wacapew` and `Wacatac`
+families are notorious for firing on almost any program packed with PyInstaller.
+The cause is not this particular program but the packer itself: its bootloader
+is identical for everyone and malware authors use it too — the resemblance is
+inherited along with it.
+
+**What changed in 1.2.0 and why it fires harder.** The build gained punctuation
+for Kazakh: a tagging model through ONNX and the `sentencepiece` tokenizer with
+its own native library, plus two program modules. The more native code sits
+inside the packer, the more willingly the heuristic calls the file suspicious —
+and that holds for any program, not just this one.
+
+The keyboard hook is real and adds to the suspicion as well: without it the
+hotkey would not work. It is described openly above.
+
+**Verified on a live machine:** Defender, with real-time protection on and fresh
+definitions, scanned this exact file and left it alone — the program runs. The
+detection shows up in VirusTotal's cloud check, where Defender runs in a stricter
+mode.
+
+What developers do about this in general: sign the executable with a developer
+certificate. That is the only real fix; it costs money and normally requires a
+legal entity. Until there is a signature, what remains is the source code next
+to the binary and this report. The program is built from the code in this very
+repository, and anyone can build it themselves — the command is below.
 
 Further down the same page are sections with community rules — YARA and Sigma.
 These are not antivirus engines, they do not affect the detection count, and the
@@ -94,11 +134,12 @@ explains why the technique matters in general; it says nothing about this
 program.
 
 The report is tied to the file's contents, not to whoever uploaded it. This is
-the fingerprint of release `v1.1.3`; you can verify it yourself in PowerShell:
+the fingerprint of release `v1.2.0` — the same exe ships as a standalone file and
+inside both archives. You can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
-# 4D2597DE594CF19E12A7B83264A14586D16C6584924F61A758BE6EC78B36E07A
+# 9FD8BBEC99633BBDA88D3E04CD66C5469965EA72AE973345E030C90C1731128E
 ```
 
 If it does not match, the file is not from the release and should not be run.
