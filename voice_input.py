@@ -19,6 +19,7 @@ ASR_MODEL, VOICE_HOTKEY, VOICE_SAVE_SAMPLES, VOICE_GAIN. Распознаван�
 """
 
 import argparse
+import contextlib
 import os
 import sys
 import threading
@@ -51,14 +52,25 @@ APP_DIR = _app_dir()
 # Чистить руками; автоудаление по возрасту добавить, если папка начнёт мешать.
 DICTATION_DIR = APP_DIR / "data" / "dictation"
 # Между этими моделями можно переключаться. Ключ — имя для onnx-asr, оно же имя
-# папки в models/. Русская e2e сама расставляет знаки препинания, многоязычные —
-# нет: это разные семейства, и пунктуацию умеет только e2e-версия.
+# папки в models/. Подписи короткие: подробности про языки и знаки препинания
+# живут в справке, а три строки в разной манере не давали понять, по какому
+# признаку модели вообще различаются.
 ASR_MODELS = {
-    "gigaam-v3-e2e-rnnt": "Русский, со знаками препинания",
-    "gigaam-multilingual-ctc": "Русский, казахский, киргизский, узбекский — без знаков препинания",
-    "gigaam-multilingual-large-ctc": "Те же языки, точнее и вдвое тяжелее",
+    "gigaam-v3-e2e-rnnt": "Русский",
+    "gigaam-multilingual-ctc": "Многоязычная",
+    "gigaam-multilingual-large-ctc": "Многоязычная, крупная",
+}
+# Сколько качать, если весов ещё нет. Человеку нужно знать это до нажатия,
+# а не после: четверть гигабайта на рабочем интернете — уже решение.
+MODEL_SIZES = {
+    "gigaam-v3-e2e-rnnt": "216 МБ",
+    "gigaam-multilingual-ctc": "225 МБ",
+    "gigaam-multilingual-large-ctc": "592 МБ",
 }
 DEFAULT_ASR_MODEL = "gigaam-v3-e2e-rnnt"
+# Знаки препинания ставит только многоязычная ветка: у русской e2e-модели они
+# свои, и трогать их второй раз нельзя — испортим то, что и так верно.
+PUNCTUATED_BY_MODEL = {"gigaam-v3-e2e-rnnt"}
 VAD_MODEL = "silero-vad"  # нарезчик длинных записей по тишине, ~2 МБ
 # Веса рядом с программой (models/) важнее кеша: так переносная копия работает
 # без интернета. Нет папки — модель скачается с HuggingFace в неё же.
@@ -82,11 +94,30 @@ def ensure_model_dir(name: str) -> Path:
             print(f"Папка модели {name} неполная — качаю заново")
             shutil.rmtree(folder, ignore_errors=True)
     return folder
+
+
+def module_ready(name: str) -> bool:
+    """Лежат ли веса модуля рядом с программой.
+
+    Смотрим на файлы, а не на папку: оборванная закачка оставляет пустую папку,
+    и по её наличию модуль выглядел бы готовым.
+    """
+    folder = APP_DIR / "models" / name
+    return folder.exists() and any(folder.glob("*.onnx"))
+
+
+def model_label(name: str, label: str) -> str:
+    """Подпись пункта меню. Весов нет — говорим, сколько качать."""
+    if module_ready(name):
+        return label
+    return f"{label} — скачать {MODEL_SIZES.get(name, '')}".rstrip()
+
+
 APP_NAME = "Dictum"
 # Три числа: ломающее изменение . новые возможности . исправления.
 # Единственное место, где версия записана: отсюда её берут «О программе», журнал
 # и свойства exe, которые показывает проводник Windows.
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.2.0"
 APP_TAGLINE = f"{APP_NAME} — голосовая диктовка"
 APP_AUTHOR = "Gshin-droid"
 APP_URL = "github.com/Gshin-droid/dictum"
@@ -409,6 +440,9 @@ class Recorder:
         self._recognize = None  # модель ещё не загружена
         self._model = None  # сама модель: нужна расшифровке файлов
         self._vad = None  # нарезчик по тишине, грузится по первой надобности
+        self._punctuator = None  # знаки препинания, грузятся по первой надобности
+        self._paste_hooks = []  # слежение за ручной вставкой, см. _watch_for_paste
+        self.punctuate = True  # выключатель в меню, значение приходит из .env
         self.switching = True  # грузится или меняется модель: запись пока не начинаем
         self.gain = gain  # чувствительность волны: подкрутить, если полоски вялые или зашкаливают
         self.recording = False
@@ -439,6 +473,24 @@ class Recorder:
 
     def _notify(self, text: str, seconds: float = NOTICE_SECONDS) -> None:
         self._notice = (text, time.time() + seconds)
+
+    @contextlib.contextmanager
+    def _working(self, text: str):
+        """Показывает сообщение ровно столько, сколько идёт работа, и ни секундой больше.
+
+        Долгое дело нельзя объявлять обычным сообщением с запасом по времени:
+        срок переживает саму работу, капсула остаётся на экране, и со стороны это
+        выглядит зависанием. Так и случилось у первого проверяющего — текст уже
+        был вставлен, а «готовлю знаки препинания…» висело ещё минуту.
+
+        Снятие в finally, а не в конце блока: упавшая работа тем более не повод
+        оставлять окно на экране.
+        """
+        self._notify(text, 3600)  # срок только предохранитель, снимаем сами
+        try:
+            yield
+        finally:
+            self._notify("")
 
     def announce(self, text: str, seconds: float = NOTICE_SECONDS) -> None:
         """Показать сообщение в капсуле. Нужно меню в лотке: своего окна у него нет."""
@@ -515,8 +567,8 @@ class Recorder:
         try:
             self.busy = True  # окно покажет «занято», а клавиша не начнёт запись
             if self._vad is None:
-                self._notify("готовлю нарезчик по тишине…", 300)
-                self._vad = load_vad()
+                with self._working("готовлю нарезчик по тишине…"):
+                    self._vad = load_vad()
             for number, name in enumerate(paths, 1):
                 path = Path(name)
                 counter = f"{number} из {len(paths)}: " if len(paths) > 1 else ""
@@ -531,7 +583,8 @@ class Recorder:
                                      f"из {seconds / 60:.0f} мин", 300)
 
                     started = time.time()
-                    text = tr.transcribe(audio, self._model, self._vad, show)
+                    text = tr.transcribe(audio, self._model, self._vad, show,
+                                         polish=self._polish)
                     if not text:
                         self._notify(f"{path.name}: речь не распознана", 8)
                         print(f"В {path.name} речи не нашлось")
@@ -558,6 +611,52 @@ class Recorder:
         self.save_samples = value
         settings.write(APP_DIR / ".env", "VOICE_SAVE_SAMPLES", "1" if value else "0")
         self._notify("записи сохраняются" if value else "записи больше не сохраняются", 4)
+
+    def set_punctuate(self, value: bool) -> None:
+        """Ставить ли знаки препинания. Выбор запоминается в .env."""
+        import voice_settings as settings
+
+        self.punctuate = value
+        settings.write(APP_DIR / ".env", "VOICE_PUNCTUATE", "1" if value else "0")
+        self._notify("знаки препинания включены" if value else "знаки препинания выключены", 4)
+
+    def copy_last_text(self) -> None:
+        """Кладёт последнюю диктовку в буфер обмена.
+
+        Страховка на то, чего автоматика не ловит: вставку правой кнопкой мыши
+        и случай «окно то, а курсор не в текстовом поле» — про второй Windows
+        честно не скажет ничего для Chrome и всего, что на Electron.
+        """
+        import pyperclip
+
+        if not self.last_text:
+            self._notify("диктовок ещё не было")
+            return
+        try:
+            pyperclip.copy(self.last_text)
+            self._notify("последняя диктовка в буфере", 4)
+        except Exception as exc:
+            print(f"⚠️ Не смог положить текст в буфер: {exc}")
+            self._notify("буфер обмена занят другой программой", 6)
+
+    def _polish(self, text: str) -> str:
+        """Знаки препинания, если они уместны. Не вышло — отдаём как было.
+
+        Сбой пунктуатора не имеет права уронить диктовку: текст уже распознан,
+        и отдать его без запятых куда лучше, чем не отдать вовсе.
+        """
+        if not self.punctuate or self.asr_model in PUNCTUATED_BY_MODEL:
+            return text
+        try:
+            if self._punctuator is None:
+                import punctuate
+
+                with self._working("готовлю знаки препинания…"):
+                    self._punctuator = punctuate.load(APP_DIR / "models")
+            return self._punctuator.apply(text)
+        except Exception as exc:
+            print(f"⚠️ Знаки препинания не поставились: {exc}")
+            return text
 
     # --- управление -------------------------------------------------------
 
@@ -616,6 +715,9 @@ class Recorder:
     def _start(self) -> None:
         import ctypes
 
+        # Обещание вернуть буфер от прошлой диктовки к этому моменту протухло:
+        # человек её так и не вставил, а новый текст сейчас займёт буфер сам.
+        self._forget_paste_watch()
         self.target_hwnd = ctypes.windll.user32.GetForegroundWindow()
         self.frames = []
         self.levels.clear()
@@ -711,7 +813,7 @@ class Recorder:
                 self._notify("слишком короткая запись")
                 print("Слишком короткая запись — пропускаю")
                 return
-            text = self._recognize(audio)
+            text = self._polish(self._recognize(audio))
             if not text:
                 self.last_text = "(речь не распознана)"
                 self._notify("речь не распознана")
@@ -731,37 +833,113 @@ class Recorder:
                 print(f"Не сохранил копию записи: {exc}")
             self.busy = False
 
-    def _paste(self, text: str) -> None:
+    def _focus_target(self) -> bool:
+        """Возвращает фокус окну, где был курсор на старте записи. Удалось ли — ответ.
+
+        Windows часто отказывает в передаче фокуса: это её защита от окон, лезущих
+        вперёд. Отказ означает, что Ctrl+V уйдёт не в то окно, — и раз так, слать
+        его нельзя вовсе. Раньше ответ не смотрели, и текст молча улетал в никуда.
+        """
         import ctypes
 
+        if not self.target_hwnd:
+            return False
+        try:
+            ctypes.windll.user32.SetForegroundWindow(self.target_hwnd)
+            time.sleep(0.15)
+            return ctypes.windll.user32.GetForegroundWindow() == self.target_hwnd
+        except Exception as exc:
+            print(f"Не смог вернуть фокус окну: {exc}")
+            return False
+
+    def _paste(self, text: str) -> None:
+        """Вставляет текст туда, где был курсор. Не вышло — оставляет в буфере.
+
+        Прежнее содержимое буфера возвращается на место: после нашей вставки —
+        сразу, после промаха — когда человек вставит текст сам.
+        """
         import keyboard
         import pyperclip
 
-        # вернуть фокус окну, в котором был курсор на старте записи
-        if self.target_hwnd:
+        landed = self._focus_target()
+
+        previous = ""
+        try:
+            previous = pyperclip.paste() or ""
+        except Exception as exc:
+            print(f"Не прочитал буфер обмена: {exc}")
+
+        # Буфер обмена в Windows берётся под замок целиком, и менеджеры буфера
+        # (Win+V, Ditto, Punto Switcher) держат его открытым на время своей работы.
+        # Библиотека ждёт полсекунды и сдаётся. Уронить из-за этого диктовку нельзя:
+        # текст уже распознан и лежит в last_text, откуда его берёт меню.
+        try:
+            pyperclip.copy(text)
+        except Exception as exc:
+            print(f"⚠️ Буфер обмена занят другой программой: {exc}")
+            self._notify("буфер занят — текст в меню «Скопировать последнюю диктовку»", 20)
+            return
+
+        if landed:
+            time.sleep(0.05)
+            keyboard.send("ctrl+v")
+            if previous:
+                threading.Timer(1.0, lambda: self._put_back(previous, text)).start()
+        else:
+            print("Окно не вышло на передний план — текст оставлен в буфере")
+            self._notify("текст в буфере — поставь курсор и вставь", 30)
+            if previous:
+                self._watch_for_paste(previous, text)
+
+    def _watch_for_paste(self, previous: str, ours: str) -> None:
+        """Вернуть прежний буфер, когда человек вставит текст сам.
+
+        Возврат по таймеру тут не годится: неизвестно, сколько человек будет
+        искать нужное окно. Ждём само действие — Ctrl+V или Shift+Insert.
+        Вставку правой кнопкой мыши так не увидеть: тогда прежнее содержимое
+        просто не вернётся, а текст останется в буфере до следующей диктовки.
+        """
+        import keyboard
+
+        self._forget_paste_watch()
+
+        def on_paste():
+            # Даём вставке пройти: вернём буфер сразу — приложение успеет
+            # прочитать уже подменённое содержимое и вставит не то.
+            threading.Timer(0.4, lambda: self._put_back(previous, ours)).start()
+
+        for combo in ("ctrl+v", "shift+insert"):
             try:
-                ctypes.windll.user32.SetForegroundWindow(self.target_hwnd)
-                time.sleep(0.15)
+                self._paste_hooks.append(keyboard.add_hotkey(combo, on_paste, suppress=False))
+            except Exception as exc:
+                print(f"Не смог следить за {combo}: {exc}")
+
+    def _forget_paste_watch(self) -> None:
+        """Снимает слежение за вставкой. Зовётся и при новой диктовке: старое
+        обещание вернуть буфер к тому времени уже неактуально."""
+        import keyboard
+
+        for hook in self._paste_hooks:
+            try:
+                keyboard.remove_hotkey(hook)
             except Exception:
                 pass
+        self._paste_hooks = []
 
-        previous = None
+    def _put_back(self, previous: str, ours: str) -> None:
+        """Возвращает прежний буфер, но только если в нём всё ещё наш текст.
+
+        Человек мог скопировать своё, пока мы ждали. Затирать его копию нельзя:
+        он этого не просил и не увидит, что потерял.
+        """
+        import pyperclip
+
+        self._forget_paste_watch()
         try:
-            previous = pyperclip.paste()
-        except Exception:
-            pass
-        pyperclip.copy(text)
-        time.sleep(0.05)
-        keyboard.send("ctrl+v")
-        if previous is not None:
-            def restore(old=previous):
-                time.sleep(1.0)
-                try:
-                    pyperclip.copy(old)
-                except Exception:
-                    pass
-
-            threading.Thread(target=restore, daemon=True).start()
+            if pyperclip.paste() == ours:
+                pyperclip.copy(previous)
+        except Exception as exc:
+            print(f"Не вернул буфер обмена: {exc}")
 
 
 # --- иконка в системном лотке ---------------------------------------------
@@ -809,6 +987,26 @@ def open_the_log() -> None:
         os.startfile(log_path())
     except OSError as exc:
         show_error(f"Журнал лежит здесь:\n{log_path()}\n\nОткрыть не вышло: {exc}")
+
+
+def open_help() -> None:
+    """Кладёт справку рядом с программой и открывает её блокнотом.
+
+    Пишем файл каждый раз заново: текст живёт в коде, и после обновления
+    программы справка обязана обновиться вместе с ней. Раньше она была только
+    в переносном архиве — тот, кто скачал один exe, не видел её никогда.
+    """
+    import help_text
+
+    target = APP_DIR / "Справка.txt"
+    try:
+        target.write_text(help_text.TEXT, encoding="utf-8")
+    except OSError:  # программа в папке без права записи — кладём во временную
+        import tempfile
+
+        target = Path(tempfile.gettempdir()) / f"{APP_NAME} — справка.txt"
+        target.write_text(help_text.TEXT, encoding="utf-8")
+    os.startfile(target)
 
 
 def capture_hotkey(recorder: Recorder, hotkey: "Hotkey") -> None:
@@ -869,7 +1067,7 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
 
     model_items = [
         pystray.MenuItem(
-            label,
+            (lambda n, l: lambda _item: model_label(n, l))(name, label),
             choose_model(name),
             checked=(lambda n: lambda _item: recorder.asr_model == n)(name),
             radio=True,
@@ -889,6 +1087,16 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Язык и модель", pystray.Menu(*model_items)),
             pystray.MenuItem(
+                "Расставлять знаки препинания",
+                lambda *_: in_background(
+                    lambda: recorder.set_punctuate(not recorder.punctuate)
+                ),
+                checked=lambda _item: recorder.punctuate,
+                visible=lambda _item: recorder.asr_model not in PUNCTUATED_BY_MODEL,
+            ),
+            pystray.MenuItem("Скопировать последнюю диктовку",
+                             lambda *_: in_background(recorder.copy_last_text)),
+            pystray.MenuItem(
                 "Сохранять записи на диск",
                 lambda *_: in_background(
                     lambda: recorder.set_save_samples(not recorder.save_samples)
@@ -900,6 +1108,7 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
                 lambda *_: in_background(lambda: capture_hotkey(recorder, hotkey)),
             ),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Справка", lambda *_: open_help()),
             pystray.MenuItem("О программе", on_about),
             pystray.MenuItem("Показать журнал", lambda *_: open_the_log()),
             pystray.MenuItem("Выход", on_quit),
@@ -960,6 +1169,9 @@ def main() -> None:
     # По умолчанию не сохраняем: модели уже выбраны замерами, а копии диктовок
     # копятся мегабайтами. Понадобится сравнить новую модель — включить в меню.
     save_samples = settings.as_bool(os.getenv("VOICE_SAVE_SAMPLES"), default=False)
+    # По умолчанию включено: без знаков текст на казахском читается как каша,
+    # а русской модели этот шаг всё равно не делается.
+    punctuate_on = settings.as_bool(os.getenv("VOICE_PUNCTUATE"), default=True)
 
     if args.check:
         sys.exit(check(asr_model))
@@ -969,6 +1181,7 @@ def main() -> None:
     # Если программа уже работает, этот вызов не вернётся: файлы уйдут ей, а мы выйдем
     lock = ensure_single_instance(args.files)
     recorder = Recorder(gain, asr_model, save_samples)
+    recorder.punctuate = punctuate_on
     hotkey = Hotkey(hotkey_key, recorder.toggle)
     listen_for_files(lock, recorder.transcribe_files)
 

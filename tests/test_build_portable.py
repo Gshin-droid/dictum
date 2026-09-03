@@ -169,3 +169,118 @@ def test_start_again_without_exe_stays_quiet(monkeypatch, tmp_path):
                         lambda *a, **k: pytest.fail("запускать было нечего"))
 
     module.start_again()
+
+
+def test_arhiv_modulya_soderzhit_obe_papki(monkeypatch, tmp_path):
+    """Модуль казахского — это две папки: распознавание и знаки препинания.
+    Без второй текст пойдёт сплошняком, и человек решит, что модуль сломан."""
+    import zipfile
+
+    module = _load(monkeypatch, tmp_path)
+    for name in (module.MULTILINGUAL_MODEL, module.PUNCT_MODEL):
+        folder = tmp_path / "models" / name
+        folder.mkdir(parents=True)
+        (folder / "веса.onnx").write_bytes(b"0")
+
+    archive = module.module_archive()
+
+    names = zipfile.ZipFile(archive).namelist()
+    assert any(module.MULTILINGUAL_MODEL in n for n in names), "нет распознавания"
+    assert any(module.PUNCT_MODEL in n for n in names), "нет знаков препинания"
+    assert any(n.endswith("Как поставить.txt") for n in names), "нет инструкции"
+
+
+def test_arhiv_modulya_otkazyvaetsya_bez_znakov_prepinaniya(monkeypatch, tmp_path):
+    """Собрать половину модуля хуже, чем не собрать: получатель увидит текст
+    без знаков и решит, что программа сломана, а не что архив неполный."""
+    module = _load(monkeypatch, tmp_path)
+    folder = tmp_path / "models" / module.MULTILINGUAL_MODEL
+    folder.mkdir(parents=True)
+    (folder / "веса.onnx").write_bytes(b"0")
+
+    with pytest.raises(SystemExit) as beda:
+        module.module_archive()
+
+    assert module.PUNCT_MODEL in str(beda.value)
+
+
+def test_sluzhebnaya_papka_kachalki_ne_popadaet_v_modul(monkeypatch, tmp_path):
+    """.cache — бухгалтерия качалки. Чужому человеку в архиве она не нужна."""
+    import zipfile
+
+    module = _load(monkeypatch, tmp_path)
+    for name in (module.MULTILINGUAL_MODEL, module.PUNCT_MODEL):
+        folder = tmp_path / "models" / name
+        folder.mkdir(parents=True)
+        (folder / "веса.onnx").write_bytes(b"0")
+        (folder / ".cache").mkdir()
+        (folder / ".cache" / "мусор").write_bytes(b"0")
+
+    names = zipfile.ZipFile(module.module_archive()).namelist()
+
+    assert not any(".cache" in n for n in names)
+
+
+def _fake_kazakh_weights(out: Path, module) -> None:
+    for name in (module.MULTILINGUAL_MODEL, module.PUNCT_MODEL):
+        folder = out / "models" / name
+        folder.mkdir(parents=True)
+        (folder / "веса.onnx").write_bytes(b"0")
+
+
+def test_kazahskaya_kopiya_soderzhit_vse_chetyre_modeli(monkeypatch, tmp_path):
+    """Собранная руками копия однажды уедет без пунктуатора — человек соберёт
+    её в спешке и забудет папку. Команда не забывает."""
+    module = _load(monkeypatch, tmp_path)
+    _fake_release(tmp_path, module)
+    _fake_kazakh_weights(tmp_path, module)
+
+    module.portable(extra=(module.MULTILINGUAL_MODEL, module.PUNCT_MODEL),
+                    suffix=module.KAZAKH_SUFFIX, env=module.KAZAKH_ENV)
+
+    folder = tmp_path / f"{module.NAME}-portable{module.KAZAKH_SUFFIX}"
+    внутри = {p.name for p in (folder / "models").iterdir()}
+    assert внутри == {module.DEFAULT_MODEL, module.VAD_MODEL,
+                      module.MULTILINGUAL_MODEL, module.PUNCT_MODEL}
+    assert (folder / f"{module.NAME}.exe").exists()
+    assert "ASR_MODEL=gigaam-multilingual-ctc" in (folder / ".env").read_text(encoding="utf-8")
+
+
+def test_obychnaya_kopiya_ostayotsya_bez_kazahskogo(monkeypatch, tmp_path):
+    """Обычная копия — 222 МБ. Казахские полгигабайта в неё попадать не должны."""
+    module = _load(monkeypatch, tmp_path)
+    _fake_release(tmp_path, module)
+    _fake_kazakh_weights(tmp_path, module)
+
+    module.portable()
+
+    внутри = {p.name for p in (tmp_path / f"{module.NAME}-portable" / "models").iterdir()}
+    assert внутри == {module.DEFAULT_MODEL, module.VAD_MODEL}
+
+
+def test_kazahskaya_kopiya_stiraetsya_pered_novoy_sborkoy(monkeypatch, tmp_path):
+    """В ней лежит exe. После пересборки программы она превращается в копию уже
+    не того файла — ровно так в выпуск 1.1.2 чуть не уехал архив от 1.1.1."""
+    module = _load(monkeypatch, tmp_path)
+    stale = tmp_path / f"{module.NAME}-portable{module.KAZAKH_SUFFIX}"
+    stale.mkdir(parents=True)
+    (stale / "старый.exe").write_bytes(b"0")
+    (tmp_path / f"{module.NAME}-portable{module.KAZAKH_SUFFIX}.zip").write_bytes(b"0")
+
+    module.drop_portable()
+
+    assert not stale.exists()
+    assert not (tmp_path / f"{module.NAME}-portable{module.KAZAKH_SUFFIX}.zip").exists()
+
+
+def test_kazahskaya_kopiya_otkazyvaetsya_bez_punktuatora(monkeypatch, tmp_path):
+    """Без знаков препинания казахский текст пойдёт сплошняком, и получатель
+    решит, что программа сломана, а не что копия неполная."""
+    module = _load(monkeypatch, tmp_path)
+    _fake_release(tmp_path, module)
+
+    with pytest.raises(SystemExit) as beda:
+        module.portable(extra=(module.MULTILINGUAL_MODEL, module.PUNCT_MODEL),
+                        suffix=module.KAZAKH_SUFFIX, env=module.KAZAKH_ENV)
+
+    assert module.MULTILINGUAL_MODEL in str(beda.value)

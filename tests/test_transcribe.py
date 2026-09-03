@@ -170,3 +170,29 @@ def test_chunks_stay_inside_what_the_model_handles():
     module.transcribe(np.zeros(module.SAMPLE_RATE * 5, dtype="float32"), model, None)
     assert model.options["max_speech_duration_s"] <= 30
     assert model.options["min_silence_duration_ms"] >= 300, "меньший порог режет на вдохах"
+
+
+def test_polish_primenyaetsya_k_kazhdomu_kusku():
+    """Знаки ставятся по кускам, разделённым паузами: границы естественные,
+    по дыханию говорящего, и каждый кусок заведомо влезает в окно пунктуатора."""
+    module = _load()
+    model = _FakeModel([_segment(0.0, 1.0, "бір екі"), _segment(1.2, 2.0, "үш төрт")])
+    seen = []
+
+    def polish(text):
+        seen.append(text)
+        return text.capitalize() + "."
+
+    text = module.transcribe(np.zeros(module.SAMPLE_RATE * 2, dtype="float32"), model, None,
+                             polish=polish)
+
+    assert seen == ["бір екі", "үш төрт"], "доводка должна получать куски, а не весь текст"
+    assert text == "Бір екі. Үш төрт."
+
+
+def test_bez_polish_tekst_ne_menyaetsya():
+    """Русской модели доводка не нужна — она не должна вызываться вовсе."""
+    module = _load()
+    model = _FakeModel([_segment(0, 1, "как было")])
+    text = module.transcribe(np.zeros(module.SAMPLE_RATE, dtype="float32"), model, None)
+    assert text == "как было"

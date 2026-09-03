@@ -69,11 +69,16 @@ PAUSE_MS = 500
 PARAGRAPH_GAP = 2.0
 
 
-def transcribe(audio: np.ndarray, model, vad, on_progress=None) -> str:
+def transcribe(audio: np.ndarray, model, vad, on_progress=None, polish=None) -> str:
     """Звук → текст. Длинные паузы становятся границами абзацев.
 
     on_progress зовётся с долей сделанного от 0 до 1: расшифровка часа идёт
     минутами, и без признаков жизни это выглядит как зависание.
+
+    polish — необязательная доводка каждого куска, «текст → текст». Через неё
+    приходят знаки препинания для многоязычной модели. Модуль о ней ничего не
+    знает, кроме того, что это функция: так он остаётся проверяемым без весов,
+    и так же он однажды переедет на сервер, не потянув за собой пунктуатор.
     """
     total = len(audio) / SAMPLE_RATE
     paragraphs: list[list[str]] = []
@@ -86,6 +91,8 @@ def transcribe(audio: np.ndarray, model, vad, on_progress=None) -> str:
     for segment in chunks:
         text = segment.text.strip()
         if text:
+            if polish:
+                text = polish(text)
             if previous_end is None or segment.start - previous_end >= PARAGRAPH_GAP:
                 paragraphs.append([text])
             else:

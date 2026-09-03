@@ -22,8 +22,9 @@ Everything runs locally. No account, no subscription, no payment — and once
 installed, no internet either: neither the audio nor the text leaves the machine.
 
 Russian speech is recognised by **GigaAM v3** from Sber: it punctuates by
-itself and writes "13:15" instead of "thirteen fifteen". The settings menu
-switches to a multilingual model — Kazakh, Kyrgyz, Uzbek.
+itself and writes "13:15" instead of "thirteen fifteen". The menu switches to a
+multilingual model — Kazakh, Kyrgyz, Uzbek. A separate module punctuates that
+one, so Kazakh text comes out readable too, not as a single unbroken stream.
 
 **Windows only** (10 and 11). It will not start on macOS or Linux.
 
@@ -235,16 +236,28 @@ The choices are stored in a `.env` file next to the program and survive a restar
 
 | Model | Languages | Punctuation | Size |
 |---|---|---|---|
-| `gigaam-v3-e2e-rnnt` | Russian | **yes** | 216 MB |
-| `gigaam-multilingual-ctc` | Russian, Kazakh, Kyrgyz, Uzbek | no | 214 MB |
-| `gigaam-multilingual-large-ctc` | the same four, more accurate | no | ~430 MB |
+| `gigaam-v3-e2e-rnnt` | Russian | on its own | 216 MB |
+| `gigaam-multilingual-ctc` | Russian, Kazakh, Kyrgyz, Uzbek | by module | 225 MB |
+| `gigaam-multilingual-large-ctc` | the same four, better on spontaneous speech | by module | 592 MB |
 
 The punctuation difference is not a detail but two different families of model.
-Measured on one and the same recording: the Russian model placed four marks, the
-multilingual one none — the whole text a single stream in lower case.
+The Russian one is trained to emit finished text: commas, full stops and capital
+letters included. The multilingual one emits a stream of lower-case letters — its
+vocabulary holds 70 characters, and neither a full stop nor a comma is among them.
 
-Dictating in Russian: take the first. Need Kazakh: take the second and live
-without full stops.
+So a **separate module** places the marks for it: 233 MB, runs on the CPU in
+fractions of a second, never changes a word. It handles Russian, Kazakh and
+Kyrgyz; it does not know Uzbek, so Uzbek speech stays unpunctuated.
+
+How well it does that in Kazakh — measured on 206 sentences from the FLEURS set:
+it finds sentence boundaries in 95 cases out of 100, commas in roughly two
+thirds, and gets the case right on 97 % of words. The full measurement is in
+[docs/kazahskiy-modul.md](docs/kazahskiy-modul.md) (Russian only).
+
+The module is downloaded from the menu, or dropped as a folder into `models/` —
+the second way needs no internet at all.
+
+Dictating in Russian: take the first model. Need Kazakh: take the second.
 
 ---
 

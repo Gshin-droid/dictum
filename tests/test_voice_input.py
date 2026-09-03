@@ -63,6 +63,10 @@ def _idle_recorder(module):
     rec._model = object()  # заглушка: управлению хватает того, что она не None
     rec._vad = None
     rec.language = "ru"
+    rec._punctuator = None
+    rec.punctuate = True
+    rec._paste_hooks = []
+    rec.target_hwnd = 12345
     return rec
 
 
@@ -660,3 +664,265 @@ def test_import_does_not_hijack_output_and_errors():
         cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert "clean" in proba.stdout, proba.stdout + proba.stderr
+
+
+def test_russkoy_modeli_punktuator_ne_primenyaetsya(monkeypatch):
+    """У русской e2e-модели знаки свои. Второй проход поставил бы их дважды,
+    и в тексте пошли бы «..» — поэтому она пропускается по имени, а не по вере."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-v3-e2e-rnnt"
+
+    def взорвись(_dir):
+        raise AssertionError("пунктуатор не должен грузиться для русской модели")
+
+    monkeypatch.setitem(sys.modules, "punctuate",
+                        types.SimpleNamespace(load=взорвись))
+
+    assert rec._polish("Привет. Как дела?") == "Привет. Как дела?"
+
+
+def test_vyklyuchatel_otmenyaet_punktuatsiyu(monkeypatch):
+    """Выключено в меню — пунктуатор не грузится вовсе, а не грузится вхолостую."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-multilingual-ctc"
+    rec.punctuate = False
+
+    def взорвись(_dir):
+        raise AssertionError("выключенный пунктуатор не должен грузиться")
+
+    monkeypatch.setitem(sys.modules, "punctuate", types.SimpleNamespace(load=взорвись))
+
+    assert rec._polish("рахмет сізге") == "рахмет сізге"
+
+
+def test_slomannyy_punktuator_ne_ronyaet_diktovku(monkeypatch):
+    """Текст уже распознан. Отдать его без запятых лучше, чем не отдать вовсе."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-multilingual-ctc"
+
+    def взорвись(_dir):
+        raise RuntimeError("весов нет")
+
+    monkeypatch.setitem(sys.modules, "punctuate", types.SimpleNamespace(load=взорвись))
+
+    assert rec._polish("рахмет сізге") == "рахмет сізге"
+
+
+class _Clipboard:
+    """Буфер обмена как объект: подменяет pyperclip и помнит, что в нём лежит."""
+
+    def __init__(self, start: str = ""):
+        self.value = start
+
+    def copy(self, text):
+        self.value = text
+
+    def paste(self):
+        return self.value
+
+
+def _fake_clipboard(monkeypatch, start: str = ""):
+    board = _Clipboard(start)
+    monkeypatch.setitem(sys.modules, "pyperclip",
+                        types.SimpleNamespace(copy=board.copy, paste=board.paste))
+    return board
+
+
+def _fake_kb(monkeypatch):
+    sent, hooks = [], []
+    fake = types.SimpleNamespace(
+        send=lambda combo: sent.append(combo),
+        add_hotkey=lambda combo, callback, **kw: hooks.append((combo, callback)) or combo,
+        remove_hotkey=lambda handle: None,
+    )
+    monkeypatch.setitem(sys.modules, "keyboard", fake)
+    return sent, hooks
+
+
+def test_promah_ne_vstavlyaet_vslepuyu_a_ostavlyaet_v_bufere(monkeypatch):
+    """Окно не вышло на передний план — Ctrl+V ушёл бы в случайное окно.
+    Лучше оставить текст в буфере и сказать об этом человеку."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    board = _fake_clipboard(monkeypatch, "прежнее содержимое")
+    sent, hooks = _fake_kb(monkeypatch)
+    rec._focus_target = lambda: False
+
+    rec._paste("расшифрованный текст")
+
+    assert sent == [], "вслепую вставлять нельзя"
+    assert board.value == "расшифрованный текст", "текст должен остаться в буфере"
+    assert [combo for combo, _ in hooks] == ["ctrl+v", "shift+insert"]
+
+
+def test_popadanie_vstavlyaet_samo(monkeypatch):
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    board = _fake_clipboard(monkeypatch, "прежнее содержимое")
+    sent, _hooks = _fake_kb(monkeypatch)
+    rec._focus_target = lambda: True
+
+    rec._paste("расшифрованный текст")
+
+    assert sent == ["ctrl+v"]
+    assert board.value == "расшифрованный текст"
+
+
+def test_posle_ruchnoy_vstavki_vozvrashchaetsya_prezhniy_bufer(monkeypatch):
+    """Ради этого всё и затевалось: вставил сам — прежнее содержимое вернулось."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    board = _fake_clipboard(monkeypatch, "ссылка, которую я держал")
+    _sent, hooks = _fake_kb(monkeypatch)
+    rec._focus_target = lambda: False
+
+    rec._paste("расшифрованный текст")
+    rec._put_back("ссылка, которую я держал", "расшифрованный текст")
+
+    assert board.value == "ссылка, которую я держал"
+    assert hooks, "слежение за вставкой должно было встать"
+
+
+def test_vozvrat_ne_zatiraet_to_chto_skopiroval_chelovek(monkeypatch):
+    """Человек успел скопировать своё — наш возврат обязан отступить."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    board = _fake_clipboard(monkeypatch, "прежнее")
+    _fake_kb(monkeypatch)
+
+    board.copy("человек скопировал своё")
+    rec._put_back("прежнее", "расшифрованный текст")
+
+    assert board.value == "человек скопировал своё"
+
+
+def test_kartinka_v_bufere_ne_zatiraetsya_pustotoy(monkeypatch):
+    """pyperclip умеет только текст: на картинке он отдаёт пустую строку.
+    Восстановить пустоту — значит стереть картинку, которую человек скопировал."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    board = _fake_clipboard(monkeypatch, "")  # как будто в буфере картинка
+    _sent, hooks = _fake_kb(monkeypatch)
+    rec._focus_target = lambda: False
+
+    rec._paste("расшифрованный текст")
+
+    assert hooks == [], "возвращать нечего — слежение вставать не должно"
+
+
+def test_zanyatyy_bufer_ne_ronyaet_diktovku(monkeypatch):
+    """Менеджеры буфера (Win+V, Ditto) держат буфер под замком, и запись может
+    не пройти. Текст уже распознан — терять его из-за этого нельзя."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    sent, _hooks = _fake_kb(monkeypatch)
+
+    def занято(_text):
+        raise RuntimeError("Error calling OpenClipboard")
+
+    monkeypatch.setitem(sys.modules, "pyperclip",
+                        types.SimpleNamespace(copy=занято, paste=lambda: "прежнее"))
+    rec._focus_target = lambda: True
+
+    rec._paste("расшифрованный текст")  # не должно бросить наружу
+
+    assert sent == [], "вставлять нечего — в буфере не наш текст"
+    assert "буфер занят" in rec._notice[0]
+
+
+def test_module_ready_vidit_tolko_papku_s_vesami(monkeypatch, tmp_path):
+    """Модуль готов, если в его папке лежит файл весов. Пустая папка остаётся
+    от оборванной закачки — по ней модуль выглядел бы готовым."""
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    folder = tmp_path / "models" / "gigaam-multilingual-ctc"
+    folder.mkdir(parents=True)
+
+    assert module.module_ready("gigaam-multilingual-ctc") is False
+    (folder / "multilingual_ctc.int8.onnx").write_bytes(b"")
+    assert module.module_ready("gigaam-multilingual-ctc") is True
+
+
+def test_u_kazhdoy_modeli_est_razmer(monkeypatch):
+    """Пометка «скачать 225 МБ» строится из MODEL_SIZES. Модель без размера
+    оставит человека без предупреждения о четверти гигабайта трафика."""
+    module = _load(monkeypatch, _fake()[0])
+
+    assert set(module.ASR_MODELS) <= set(module.MODEL_SIZES)
+    assert all(module.MODEL_SIZES[name] for name in module.ASR_MODELS)
+
+
+def test_podpisi_modeley_korotkie(monkeypatch):
+    """Подробности живут в справке. Подпись длиной в строку в меню не читают."""
+    module = _load(monkeypatch, _fake()[0])
+
+    for name, label in module.ASR_MODELS.items():
+        assert len(label) <= 25, f"{name}: подпись «{label}» длиной {len(label)}"
+
+
+def test_skachat_pishetsya_tolko_u_otsutstvuyushchih(monkeypatch, tmp_path):
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    folder = tmp_path / "models" / "gigaam-v3-e2e-rnnt"
+    folder.mkdir(parents=True)
+    (folder / "веса.onnx").write_bytes(b"")
+
+    assert module.model_label("gigaam-v3-e2e-rnnt", "Русский") == "Русский"
+    assert module.model_label("gigaam-multilingual-ctc", "Многоязычная") == \
+        "Многоязычная — скачать 225 МБ"
+
+
+def test_kopiruet_poslednyuyu_diktovku(monkeypatch):
+    """Страховка на случай, когда автоматика промахнулась, а вставку правой
+    кнопкой мыши мы не увидели: текст всегда можно забрать из меню."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    board = _fake_clipboard(monkeypatch, "что-то другое")
+    rec.last_text = "текст последней диктовки"
+
+    rec.copy_last_text()
+
+    assert board.value == "текст последней диктовки"
+
+
+def test_kopirovat_nechego_kogda_diktovok_ne_bylo(monkeypatch):
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    board = _fake_clipboard(monkeypatch, "что-то другое")
+    rec.last_text = ""
+
+    rec.copy_last_text()
+
+    assert board.value == "что-то другое", "пустотой буфер затирать нельзя"
+
+
+def test_soobshchenie_o_podgotovke_ne_perezhivaet_rabotu(monkeypatch):
+    """Сообщение с большим сроком показа держало капсулу на экране минуту после
+    того, как работа кончилась. Со стороны это выглядит зависанием — так и вышло
+    у первого же проверяющего: текст вставился, а окно осталось висеть."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-multilingual-ctc"
+    monkeypatch.setitem(sys.modules, "punctuate", types.SimpleNamespace(
+        load=lambda _dir: types.SimpleNamespace(apply=lambda t: t + ".")))
+
+    assert rec._polish("рахмет") == "рахмет."
+    assert rec.notice_text() is None, "капсула останется висеть на экране"
+
+
+def test_soobshchenie_snimaetsya_i_kogda_podgotovka_upala(monkeypatch):
+    """Упавшая загрузка — тем более не повод оставлять окно на экране."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-multilingual-ctc"
+
+    def упало(_dir):
+        raise RuntimeError("весов нет")
+
+    monkeypatch.setitem(sys.modules, "punctuate", types.SimpleNamespace(load=упало))
+
+    assert rec._polish("рахмет") == "рахмет"
+    assert rec.notice_text() is None

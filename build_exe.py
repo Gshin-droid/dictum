@@ -1,7 +1,9 @@
 """Сборка Dictum в один exe.
 
-    .venv\\Scripts\\python.exe build_exe.py              выпуск: exe и переносная копия
-    .venv\\Scripts\\python.exe build_exe.py --only-exe   отладка: быстро, без архива
+    .venv\\Scripts\\python.exe build_exe.py                 выпуск: exe и переносная копия
+    .venv\\Scripts\\python.exe build_exe.py --only-exe      отладка: быстро, без архива
+    .venv\\Scripts\\python.exe build_exe.py --portable-kk   копия с казахским, из готового exe
+    .venv\\Scripts\\python.exe build_exe.py --module        только веса казахского модуля
 
 На выходе — dist/dictum.exe, один файл на 62 МБ. Веса модели внутрь НЕ
 вшиваются намеренно: они весят 216 МБ, а однофайловая сборка распаковывает всё
@@ -17,6 +19,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from help_text import TEXT as READ_ME_FIRST
+
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
 OUT = ROOT / "dist"
@@ -28,6 +32,25 @@ ALLOWED_SOURCES = (ROOT, Path(sys.executable).resolve().parent.parent,
                    Path(sys.base_prefix), WINDOWS)
 DEFAULT_MODEL = "gigaam-v3-e2e-rnnt"  # её и кладём в переносную копию
 VAD_MODEL = "silero-vad"  # нарезчик длинных записей; без него расшифровка полезет в сеть
+MULTILINGUAL_MODEL = "gigaam-multilingual-ctc"  # казахский, киргизский, узбекский
+PUNCT_MODEL = "punct-multilang"  # знаки препинания для многоязычной модели
+MODULE_NAME = "dictum-modul-kazahskiy"
+KAZAKH_SUFFIX = "-kazahskiy"  # приписка к имени казахской переносной копии
+# Настройки, с которыми казахская копия стартует у получателя. Многоязычная
+# модель выбрана заранее: копия собрана под проверку казахского, и заставлять
+# человека сначала искать пункт в меню незачем.
+KAZAKH_ENV = """# Настройки Dictum. Меняются в меню значка у часов, править руками не нужно.
+
+# Модель распознавания. Многоязычная выбрана заранее: эта копия собрана
+# для казахского. Переключается в меню, пункт «Язык и модель».
+ASR_MODEL=gigaam-multilingual-ctc
+
+# Знаки препинания для многоязычной модели: 1 — ставить, 0 — не ставить.
+VOICE_PUNCTUATE=1
+
+# Горячая клавиша записи.
+VOICE_HOTKEY=f8
+"""
 # Бухгалтерия качалки: остаётся в папке весов после скачивания и работе не нужна.
 # Чужому человеку в архиве не место — он открывает его и видит непонятный сор.
 LEFTOVERS = shutil.ignore_patterns(".cache")
@@ -184,6 +207,8 @@ def build(icon: Path, version_file: Path) -> None:
         "--hidden-import", "voice_window",
         "--hidden-import", "voice_settings",
         "--hidden-import", "transcribe",
+        "--hidden-import", "punctuate",
+        "--hidden-import", "help_text",
     ]
     for name in COLLECT_DATA:
         args += ["--collect-data", name]
@@ -202,100 +227,79 @@ def build(icon: Path, version_file: Path) -> None:
     check_origins(BUILD / NAME / "PKG-00.toc")
 
 
-READ_ME_FIRST = """Dictum — голосовая диктовка
-
-Нажал клавишу — говоришь — текст появляется там, где стоял курсор.
-
-КАК ЗАПУСТИТЬ
-  Двойной клик по dictum.exe. Устанавливать ничего не нужно.
-  Если Windows покажет синее окно «Система Windows защитила ваш компьютер»,
-  нажать ссылку «Подробнее», под ней появится кнопка «Выполнить в любом случае».
-
-  Окна не появится: программа живёт значком рядом с часами. Он может прятаться
-  под стрелочкой «Отображать скрытые значки».
-
-КАК ПОЛЬЗОВАТЬСЯ
-  F8            начать запись (внизу экрана появится полоска с волной)
-  F8 ещё раз    распознать и вставить текст туда, где стоял курсор
-  Esc           выбросить запись, ничего не распознавая
-  правый клик по значку   настройки: модель, горячая клавиша, о программе
-  правый клик по значку → Выход   закрыть программу
-
-  Курсор нужно поставить в поле для ввода ДО нажатия F8: текст вставляется
-  в то окно, которое было активным в момент начала записи.
-
-РАСШИФРОВАТЬ ГОТОВУЮ ЗАПИСЬ
-  Правый клик по значку у часов -> «Расшифровать аудиофайл…», выбрать запись.
-  Рядом с ней появится текст тем же именем, с расширением .txt, и сразу
-  откроется.
-
-  Можно и перетащить файл мышкой — но НА САМ dictum.exe или на его ярлык.
-  На значок у часов файлы перетащить нельзя: область уведомлений Windows их
-  не принимает ни у одной программы.
-
-  Читаются wav, mp3, ogg, opus, flac. Записи с iPhone (.m4a) сначала перевести
-  в mp3 любым конвертером.
-  Час записи разбирается примерно за восемь минут; пока идёт разбор, диктовка
-  по клавише не работает.
-
-ЕСЛИ КЛАВИША НЕ СРАБАТЫВАЕТ В КАКОМ-ТО ОКНЕ
-  В окна, запущенные от имени администратора, обычная программа печатать не
-  может. Это защита Windows, а не поломка программы: Диспетчер задач, редактор
-  реестра, командная строка администратора, установщики.
-  Лечится запуском самой диктовки от администратора: правый клик по dictum.exe
-  -> «Запуск от имени администратора». Тогда она печатает и туда, и в обычные
-  окна — ограничение работает только снизу вверх.
-
-ЕСЛИ ПРОГРАММА НЕ ЗАПУСКАЕТСЯ
-  При поломке на старте она сама показывает окно с ошибкой и называет файл
-  журнала. Если окна не было — журнал лежит в папке logs рядом с dictum.exe.
-  Из работающей программы его открывает пункт меню «Показать журнал».
-  Этот файл и нужно прислать автору: по нему видно причину.
-
-ВАЖНО
-  Папку не распаковывать в Program Files — программе нужно право записи
-  рядом с собой. Годится рабочий стол, «Документы», флешка.
-  Папку models не удалять и не переименовывать: в ней распознавание речи.
-
-  Интернет не нужен вообще: модель уже внутри, речь никуда не отправляется.
-
-Автор: Gshin-droid. Открытый код, лицензия MIT:
-https://github.com/Gshin-droid/dictum
-"""
-
-
-def portable() -> Path:
-    """Собирает папку «распаковал и работай»: exe плюс уже скачанная модель.
+def portable(extra: tuple[str, ...] = (), suffix: str = "", env: str = "") -> Path:
+    """Собирает папку «распаковал и работай»: exe плюс уже скачанные модели.
 
     Второй способ раздачи. Один exe меньше, но у него первый запуск качает
     216 МБ — а бывает, что интернета на той машине нет вовсе или он платный.
     Здесь качать нечего: копируется всё готовое.
+
+    extra — папки весов сверх обязательных. Через них собирается казахская копия;
+    руками её однажды соберут в спешке и забудут пунктуатор, а команда не забудет.
+    suffix — приписка к имени, чтобы казахская копия не затирала обычную.
+    env — готовые настройки рядом с программой, если копия собрана под задачу.
     """
-    folder = OUT / f"{NAME}-portable"
+    folder = OUT / f"{NAME}-portable{suffix}"
     shutil.rmtree(folder, ignore_errors=True)
     (folder / "models").mkdir(parents=True)
 
     shutil.copy2(OUT / f"{NAME}.exe", folder / f"{NAME}.exe")
     (folder / "Прочти меня.txt").write_text(READ_ME_FIRST, encoding="utf-8")
+    if env:
+        (folder / ".env").write_text(env, encoding="utf-8")
 
-    weights = OUT / "models" / DEFAULT_MODEL
-    if not weights.exists():
-        raise SystemExit(
-            f"Нет весов в {weights}. Запустить dist/{NAME}.exe один раз — он их скачает."
-        )
-    print(f"копирую веса {DEFAULT_MODEL} (216 МБ, полминуты)...")
-    shutil.copytree(weights, folder / "models" / DEFAULT_MODEL, ignore=LEFTOVERS)
-
-    vad = OUT / "models" / VAD_MODEL
-    if not vad.exists():
-        raise SystemExit(
-            f"Нет нарезчика в {vad}. Расшифруй любой файл готовым exe — он его скачает.\n"
-            "Без него переносная копия полезет в интернет на первой же расшифровке."
-        )
-    shutil.copytree(vad, folder / "models" / VAD_MODEL, ignore=LEFTOVERS)
+    for name in (DEFAULT_MODEL, VAD_MODEL, *extra):
+        weights = OUT / "models" / name
+        if not weights.exists():
+            raise SystemExit(
+                f"Нет весов {name} в {weights}.\n"
+                f"Выбрать нужную модель в меню готового dist/{NAME}.exe и продиктовать "
+                "одну фразу — он скачает и её, и всё, что к ней прилагается."
+            )
+        size = sum(f.stat().st_size for f in weights.rglob("*") if f.is_file())
+        print(f"копирую веса {name} ({size / 1e6:.0f} МБ)...")
+        shutil.copytree(weights, folder / "models" / name, ignore=LEFTOVERS)
 
     print("жму в архив, это пара минут...")
-    archive = shutil.make_archive(str(OUT / f"{NAME}-portable"), "zip", OUT, folder.name)
+    archive = shutil.make_archive(str(OUT / f"{NAME}-portable{suffix}"), "zip", OUT, folder.name)
+    return Path(archive)
+
+
+def module_archive() -> Path:
+    """Собирает отдельный архив казахского модуля: две папки весов.
+
+    Нужен для машины без интернета: человек распаковывает его в models/ рядом с
+    программой, и при следующем запуске пункт меню перестаёт просить закачку.
+    Кладём обе папки сразу — без пунктуатора текст пойдёт сплошняком, и модуль
+    будет выглядеть сломанным, хотя распознавание работает.
+    """
+    staging = OUT / MODULE_NAME
+    shutil.rmtree(staging, ignore_errors=True)
+    (staging / "models").mkdir(parents=True)
+
+    for name in (MULTILINGUAL_MODEL, PUNCT_MODEL):
+        source = OUT / "models" / name
+        if not source.exists():
+            raise SystemExit(
+                f"Нет весов {name} в {source}.\n"
+                "Выбрать «Многоязычная» в меню готового exe и продиктовать одну фразу — "
+                "он скачает и модель, и знаки препинания."
+            )
+        shutil.copytree(source, staging / "models" / name, ignore=LEFTOVERS)
+
+    (staging / "Как поставить.txt").write_text(
+        "Казахский модуль для Dictum\n"
+        f"{'-' * 40}\n\n"
+        "Папку models из этого архива положить рядом с dictum.exe, согласившись\n"
+        "объединить с уже существующей папкой models. Перезапустить программу.\n\n"
+        "В меню значка у часов, в пункте «Язык и модель», выбрать «Многоязычная».\n"
+        "Знаки препинания включатся сами; выключаются там же, отдельным пунктом.\n\n"
+        "Интернет для этого не нужен.\n",
+        encoding="utf-8",
+    )
+
+    print("жму модуль в архив...")
+    archive = shutil.make_archive(str(OUT / MODULE_NAME), "zip", OUT, staging.name)
     return Path(archive)
 
 
@@ -309,8 +313,9 @@ def drop_portable() -> None:
 
     Поэтому старая копия не остаётся лежать вовсе: расходиться нечему.
     """
-    shutil.rmtree(OUT / f"{NAME}-portable", ignore_errors=True)
-    (OUT / f"{NAME}-portable.zip").unlink(missing_ok=True)
+    for suffix in ("", KAZAKH_SUFFIX):
+        shutil.rmtree(OUT / f"{NAME}-portable{suffix}", ignore_errors=True)
+        (OUT / f"{NAME}-portable{suffix}.zip").unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
@@ -318,6 +323,21 @@ if __name__ == "__main__":
     # и забытый флаг оставлял в dist архив от прежней сборки. Теперь забывчивость
     # даёт полный комплект, а урезанная сборка требует сказать это вслух.
     only_exe = "--only-exe" in sys.argv
+
+    # Модуль собирается из уже скачанных весов и exe не трогает вовсе:
+    # пересобирать программу ради упаковки чужих гигабайт незачем.
+    if "--portable-kk" in sys.argv:
+        kk = portable(extra=(MULTILINGUAL_MODEL, PUNCT_MODEL),
+                      suffix=KAZAKH_SUFFIX, env=KAZAKH_ENV)
+        print(f"\nказахская переносная копия: {kk}  ({kk.stat().st_size / 1e6:.0f} МБ)")
+        print("распаковал, кликнул dictum.exe — говорит по-казахски, качать нечего")
+        sys.exit(0)
+
+    if "--module" in sys.argv:
+        module_zip = module_archive()
+        print(f"\nмодуль: {module_zip}  ({module_zip.stat().st_size / 1e6:.0f} МБ)")
+        print("получателю: распаковать в папку с dictum.exe, слив папки models")
+        sys.exit(0)
 
     icon_path = BUILD / f"{NAME}.ico"
     version_path = BUILD / "version_info.txt"
