@@ -67,7 +67,15 @@ def _idle_recorder(module):
     rec.punctuate = True
     rec._paste_hooks = []
     rec.target_hwnd = 12345
+    rec._dictionary = _NoDictionary()
     return rec
+
+
+class _NoDictionary:
+    """Словарь-пустышка: отдаёт текст как есть."""
+
+    def apply(self, text):
+        return text
 
 
 # --- горячая клавиша -------------------------------------------------------
@@ -926,3 +934,51 @@ def test_soobshchenie_snimaetsya_i_kogda_podgotovka_upala(monkeypatch):
 
     assert rec._polish("рахмет") == "рахмет"
     assert rec.notice_text() is None
+
+
+# --- словарь замен в связке ------------------------------------------------
+
+
+class _Slovar:
+    """Словарь с одним правилом — проверяем, что его вообще спрашивают."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def apply(self, text):
+        self.calls += 1
+        return text.replace("гугл", "Google")
+
+
+def test_slovar_rabotaet_i_dlya_russkoy_modeli(monkeypatch):
+    module = _load(monkeypatch, _fake())
+    """Русская модель знаки ставит сама, но имён человека не знает — словарь ей нужен."""
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-v3-e2e-rnnt"
+    assert rec.asr_model in module.PUNCTUATED_BY_MODEL
+    rec._dictionary = _Slovar()
+    assert rec._polish("открой гугл") == "открой Google"
+
+
+def test_slovar_rabotaet_pri_vyklyuchennyh_znakah(monkeypatch):
+    module = _load(monkeypatch, _fake())
+    """Выключенные знаки препинания не должны отключать замены заодно."""
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-multilingual-ctc"
+    rec.punctuate = False
+    rec._dictionary = _Slovar()
+    assert rec._polish("открой гугл") == "открой Google"
+
+
+def test_slomannyy_slovar_ne_ronyaet_diktovku(monkeypatch):
+    module = _load(monkeypatch, _fake())
+    """Сбой словаря обязан отдать текст как был: диктовка уже распознана."""
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-v3-e2e-rnnt"
+
+    class _Slomannyy:
+        def apply(self, text):
+            raise RuntimeError("файл словаря испорчен")
+
+    rec._dictionary = _Slomannyy()
+    assert rec._polish("текст на месте") == "текст на месте"

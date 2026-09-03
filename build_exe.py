@@ -209,6 +209,7 @@ def build(icon: Path, version_file: Path) -> None:
         "--hidden-import", "transcribe",
         "--hidden-import", "punctuate",
         "--hidden-import", "help_text",
+        "--hidden-import", "replacements",
     ]
     for name in COLLECT_DATA:
         args += ["--collect-data", name]

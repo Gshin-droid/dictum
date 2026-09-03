@@ -34,6 +34,8 @@ import numpy as np
 import sounddevice as sd
 from dotenv import load_dotenv
 
+import replacements
+
 
 def _app_dir() -> Path:
     """Папка, от которой считаются свои файлы: модель, .env, логи, записи диктовок.
@@ -442,6 +444,7 @@ class Recorder:
         self._vad = None  # нарезчик по тишине, грузится по первой надобности
         self._punctuator = None  # знаки препинания, грузятся по первой надобности
         self._paste_hooks = []  # слежение за ручной вставкой, см. _watch_for_paste
+        self._dictionary = replacements.Dictionary(APP_DIR / replacements.FILE_NAME)
         self.punctuate = True  # выключатель в меню, значение приходит из .env
         self.switching = True  # грузится или меняется модель: запись пока не начинаем
         self.gain = gain  # чувствительность волны: подкрутить, если полоски вялые или зашкаливают
@@ -640,6 +643,22 @@ class Recorder:
             self._notify("буфер обмена занят другой программой", 6)
 
     def _polish(self, text: str) -> str:
+        """Довести распознанное до вида, в котором его вставляют.
+
+        Два шага, и второй нужен обеим моделям: русская пишет «Google» верно,
+        но имён и терминов человека не знает так же, как многоязычная.
+        """
+        return self._replace(self._punctuation(text))
+
+    def _replace(self, text: str) -> str:
+        """Словарь замен. Сломанный файл не имеет права уронить диктовку."""
+        try:
+            return self._dictionary.apply(text)
+        except Exception as exc:
+            print(f"⚠️ Словарь замен не применился: {exc}")
+            return text
+
+    def _punctuation(self, text: str) -> str:
         """Знаки препинания, если они уместны. Не вышло — отдаём как было.
 
         Сбой пунктуатора не имеет права уронить диктовку: текст уже распознан,
@@ -1009,6 +1028,20 @@ def open_help() -> None:
     os.startfile(target)
 
 
+def open_dictionary() -> None:
+    """Открывает словарь замен блокнотом, создав его с примерами при первом заходе.
+
+    Образец не перезаписываем — в отличие от справки, тут живёт работа человека.
+    """
+    try:
+        target = replacements.ensure_file(APP_DIR)
+    except OSError:  # программа в папке без права записи — кладём во временную
+        import tempfile
+
+        target = replacements.ensure_file(Path(tempfile.gettempdir()))
+    os.startfile(target)
+
+
 def capture_hotkey(recorder: Recorder, hotkey: "Hotkey") -> None:
     """Ждёт нажатие и перевешивает диктовку на эту клавишу. Esc — оставить прежнюю."""
     import keyboard
@@ -1108,6 +1141,7 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
                 lambda *_: in_background(lambda: capture_hotkey(recorder, hotkey)),
             ),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Словарь замен", lambda *_: open_dictionary()),
             pystray.MenuItem("Справка", lambda *_: open_help()),
             pystray.MenuItem("О программе", on_about),
             pystray.MenuItem("Показать журнал", lambda *_: open_the_log()),
