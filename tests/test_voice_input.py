@@ -982,3 +982,44 @@ def test_slomannyy_slovar_ne_ronyaet_diktovku(monkeypatch):
 
     rec._dictionary = _Slomannyy()
     assert rec._polish("текст на месте") == "текст на месте"
+
+
+# --- переключатель языка ---------------------------------------------------
+
+
+def test_yazyk_menyaetsya_i_zapominaetsya(monkeypatch, tmp_path):
+    """Выбор из меню обязан лечь в .env — иначе после перезапуска он потеряется."""
+    module = _load(monkeypatch, _fake())
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    rec = _idle_recorder(module)
+
+    rec.set_interface_language("kk")
+    assert module.messages.language() == "kk"
+    assert "VOICE_LANG=kk" in (tmp_path / ".env").read_text(encoding="utf-8")
+    module.messages.set_language(module.messages.DEFAULT)
+
+
+def test_neizvestnyy_yazyk_ostavlyaet_prezhniy(monkeypatch, tmp_path):
+    """Испорченная настройка не должна превращать меню в пустые строки."""
+    module = _load(monkeypatch, _fake())
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    rec = _idle_recorder(module)
+
+    rec.set_interface_language("эльфийский")
+    assert module.messages.language() == module.messages.DEFAULT
+    # В файл ложится то, что реально встало, а не то, что попросили.
+    assert "VOICE_LANG=ru" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_soobshchenie_o_smene_na_novom_yazyke(monkeypatch, tmp_path):
+    """Единственная проверка, доступная человеку сразу: увидел слово — язык встал."""
+    module = _load(monkeypatch, _fake())
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    module.messages.TEXTS["notice.language_set"]["kk"] = "бағдарлама тілі: {language}"
+    rec = _idle_recorder(module)
+    try:
+        rec.set_interface_language("kk")
+        assert rec.notice_text() == "бағдарлама тілі: Қазақша"
+    finally:
+        module.messages.TEXTS["notice.language_set"].pop("kk", None)
+        module.messages.set_language(module.messages.DEFAULT)

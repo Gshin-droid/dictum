@@ -35,6 +35,7 @@ import sounddevice as sd
 from dotenv import load_dotenv
 
 import replacements
+import messages
 from messages import t
 
 
@@ -626,6 +627,19 @@ class Recorder:
         settings.write(APP_DIR / ".env", "VOICE_PUNCTUATE", "1" if value else "0")
         self._notify(t("notice.punct_on" if value else "notice.punct_off"), 4)
 
+    def set_interface_language(self, code: str) -> None:
+        """Язык надписей на экране. Выбор запоминается в .env.
+
+        Сообщение о смене показываем уже на новом языке — это единственная
+        проверка, доступная человеку сразу: увидел знакомое слово — язык встал.
+        """
+        import voice_settings as settings
+
+        messages.set_language(code)
+        settings.write(APP_DIR / ".env", "VOICE_LANG", messages.language())
+        self._notify(t("notice.language_set",
+                       language=messages.LANGUAGES.get(messages.language(), code)), 4)
+
     def copy_last_text(self) -> None:
         """Кладёт последнюю диктовку в буфер обмена.
 
@@ -1109,6 +1123,23 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
         for name, label in ASR_MODELS.items()
     ]
 
+    def choose_language(code: str):
+        return lambda icon, _item=None: in_background(
+            lambda: recorder.set_interface_language(code)
+        )
+
+    # Подписи языков не переводятся: «Қазақша» человек узнаёт именно в таком
+    # виде, а «Казахский» на казахском ему ничего не скажет.
+    language_items = [
+        pystray.MenuItem(
+            (lambda l: lambda _item: l)(label),
+            choose_language(code),
+            checked=(lambda c: lambda _item: messages.language() == c)(code),
+            radio=True,
+        )
+        for code, label in messages.LANGUAGES.items()
+    ]
+
     icon = pystray.Icon(
         APP_NAME.lower(),
         tray_image(tray_colors()["idle"]),
@@ -1142,6 +1173,8 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
                 lambda *_: in_background(lambda: capture_hotkey(recorder, hotkey)),
             ),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem(lambda _item: t("menu.interface_language"),
+                             pystray.Menu(*language_items)),
             pystray.MenuItem(lambda _item: t("menu.dictionary"), lambda *_: open_dictionary()),
             pystray.MenuItem(lambda _item: t("menu.help"), lambda *_: open_help()),
             pystray.MenuItem(lambda _item: t("menu.about"), on_about),
@@ -1207,6 +1240,9 @@ def main() -> None:
     # По умолчанию включено: без знаков текст на казахском читается как каша,
     # а русской модели этот шаг всё равно не делается.
     punctuate_on = settings.as_bool(os.getenv("VOICE_PUNCTUATE"), default=True)
+    # Язык надписей на экране. Незнакомый код messages молча пропустит и оставит
+    # русский: испорченная настройка не должна превращать меню в пустые строки.
+    messages.set_language(os.getenv("VOICE_LANG", messages.DEFAULT))
 
     if args.check:
         sys.exit(check(asr_model))

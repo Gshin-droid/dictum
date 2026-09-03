@@ -117,7 +117,5 @@ def test_neispolzovannye_klyuchi_nazvany(ms):
     молча копится и превращает список в свалку.
     """
     ispolzovano = _klyuchi_iz_koda()
-    # Ждут переключателя языка, он появится следующим шагом.
-    zhdut = {"menu.interface_language", "notice.language_set"}
-    lishnie = sorted(set(ms.TEXTS) - ispolzovano - zhdut)
+    lishnie = sorted(set(ms.TEXTS) - ispolzovano)
     assert not lishnie, f"строки есть в списке, но нигде не используются: {lishnie}"
