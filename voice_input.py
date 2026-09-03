@@ -56,13 +56,14 @@ APP_DIR = _app_dir()
 # Чистить руками; автоудаление по возрасту добавить, если папка начнёт мешать.
 DICTATION_DIR = APP_DIR / "data" / "dictation"
 # Между этими моделями можно переключаться. Ключ — имя для onnx-asr, оно же имя
-# папки в models/. Подписи короткие: подробности про языки и знаки препинания
-# живут в справке, а три строки в разной манере не давали понять, по какому
-# признаку модели вообще различаются.
+# папки в models/. Значение — ключ подписи, а не сама подпись: в казахском меню
+# названия моделей оставались русскими, потому что лежали здесь строками.
+# Подписи короткие: подробности про языки и знаки препинания живут в справке,
+# а три строки в разной манере не давали понять, чем модели различаются.
 ASR_MODELS = {
-    "gigaam-v3-e2e-rnnt": "Русский",
-    "gigaam-multilingual-ctc": "Многоязычная",
-    "gigaam-multilingual-large-ctc": "Многоязычная, крупная",
+    "gigaam-v3-e2e-rnnt": "menu.model_russian",
+    "gigaam-multilingual-ctc": "menu.model_multi",
+    "gigaam-multilingual-large-ctc": "menu.model_multi_large",
 }
 # Сколько качать, если весов ещё нет. Человеку нужно знать это до нажатия,
 # а не после: четверть гигабайта на рабочем интернете — уже решение.
@@ -110,8 +111,9 @@ def module_ready(name: str) -> bool:
     return folder.exists() and any(folder.glob("*.onnx"))
 
 
-def model_label(name: str, label: str) -> str:
+def model_label(name: str, key: str) -> str:
     """Подпись пункта меню. Весов нет — говорим, сколько качать."""
+    label = t(key)
     if module_ready(name):
         return label
     return t("menu.model_download", label=label,
@@ -1025,14 +1027,20 @@ def open_the_log() -> None:
         show_error(t("error.log_open", path=log_path(), error=exc))
 
 
-def open_help() -> None:
-    """Кладёт справку рядом с программой и открывает её блокнотом.
+def open_help(window=None) -> None:
+    """Показывает справку своим окном: разделы слева, текст справа.
 
-    Пишем файл каждый раз заново: текст живёт в коде, и после обновления
-    программы справка обязана обновиться вместе с ней. Раньше она была только
-    в переносном архиве — тот, кто скачал один exe, не видел её никогда.
+    Раньше справка писалась файлом рядом с программой и открывалась блокнотом.
+    Работало, но выглядело как временный файл, и оглавления не было вовсе.
+    Без окна (headless) остаётся прежний путь — там рисовать нечем.
     """
     import help_text
+
+    if window is not None:
+        import voice_dialogs
+
+        window.request(lambda root: voice_dialogs.show_help(root, help_text.TEXT))
+        return
 
     target = APP_DIR / "Справка.txt"
     try:
@@ -1076,7 +1084,7 @@ def capture_hotkey(recorder: Recorder, hotkey: "Hotkey") -> None:
 
 
 def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey",
-               ask_for_file=None):
+               ask_for_file=None, window=None):
     """Иконка в лотке: клик — запись, правая кнопка — настройки. Живёт в своём потоке."""
     import pystray
 
@@ -1101,14 +1109,32 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
         icon.stop()
 
     def on_about(icon, _item=None):
-        text = t("about.body", key=hotkey.key.upper(),
-                 model=ASR_MODELS.get(recorder.asr_model, recorder.model_name),
-                 author=APP_AUTHOR, url=APP_URL)
-        try:
-            icon.notify(text, t("about.title", app=APP_NAME, version=APP_VERSION))
-        except Exception:  # всплывающие подсказки есть не в каждой системе
+        """Окно с данными о программе.
+
+        Раньше это была всплывающая подсказка у часов, но размер ей задаёт
+        Windows: длинный текст она резала молча, и человек видел обрывок.
+        Без окна (headless) остаётся короткая строка в капсуле.
+        """
+        if window is None:
             recorder.announce(t("about.short", app=APP_NAME, model=recorder.model_name,
                                 key=hotkey.key.upper()), 6)
+            return
+
+        import voice_dialogs
+
+        window.request(lambda root: voice_dialogs.show_about(
+            root,
+            app=APP_NAME,
+            version=APP_VERSION,
+            tagline=t("about.tagline"),
+            model=t(ASR_MODELS[recorder.asr_model]) if recorder.asr_model in ASR_MODELS
+            else recorder.model_name,
+            hotkey=hotkey.key.upper(),
+            punctuation=recorder.punctuate,
+            language=messages.LANGUAGES.get(messages.language(), messages.language()),
+            author=APP_AUTHOR,
+            url=APP_URL,
+        ))
 
     def choose_model(name: str):
         return lambda icon, _item=None: in_background(lambda: recorder.switch_model(name))
@@ -1176,7 +1202,7 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
             pystray.MenuItem(lambda _item: t("menu.interface_language"),
                              pystray.Menu(*language_items)),
             pystray.MenuItem(lambda _item: t("menu.dictionary"), lambda *_: open_dictionary()),
-            pystray.MenuItem(lambda _item: t("menu.help"), lambda *_: open_help()),
+            pystray.MenuItem(lambda _item: t("menu.help"), lambda *_: open_help(window)),
             pystray.MenuItem(lambda _item: t("menu.about"), on_about),
             pystray.MenuItem(lambda _item: t("menu.log"), lambda *_: open_the_log()),
             pystray.MenuItem(lambda _item: t("menu.quit"), on_quit),
@@ -1268,7 +1294,8 @@ def main() -> None:
 
     window = VoiceWindow(recorder, hotkey.key, on_files=recorder.transcribe_files)
     hotkey.on_change = window.set_hotkey
-    start_tray(recorder, window.should_quit, hotkey, ask_for_file=window.ask_for_file)
+    start_tray(recorder, window.should_quit, hotkey, ask_for_file=window.ask_for_file,
+               window=window)
     print(f"Окно и значок на месте. Хоткей: {hotkey.key}, "
           f"стекло: {'да' if window.glass else 'нет (матовый фон)'}")
 

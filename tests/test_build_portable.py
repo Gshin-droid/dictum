@@ -1,6 +1,7 @@
 """Переносная сборка: в папке обязана лежать модель, иначе она не переносная."""
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -284,3 +285,33 @@ def test_kazahskaya_kopiya_otkazyvaetsya_bez_punktuatora(monkeypatch, tmp_path):
                         suffix=module.KAZAKH_SUFFIX, env=module.KAZAKH_ENV)
 
     assert module.MULTILINGUAL_MODEL in str(beda.value)
+
+
+def test_svoi_moduli_perechisleny_dlya_sborshchika():
+    """Каждый свой модуль обязан стоять в списке --hidden-import сборщика.
+
+    Забытый модуль ломает только собранную программу: из исходников всё
+    работает, а в exe пункт меню молча падает. Проверка замкнута на самих
+    файлах — читает, что мы импортируем, и сверяет со списком. Лишнее в списке
+    ничего не стоит, поэтому законных исключений у правила нет.
+    """
+    import ast
+
+    свои = {путь.stem for путь in ROOT.glob("*.py")}
+    # эти в exe не входят: точка входа и инструменты разработчика
+    снаружи = {"voice_input", "build_exe", "release_check"}
+
+    исходник = (ROOT / "build_exe.py").read_text(encoding="utf-8")
+    перечислено = set(re.findall(r'"--hidden-import", "(\w+)"', исходник))
+
+    нужны = set()
+    for имя in свои - {"build_exe", "release_check"}:
+        дерево = ast.parse((ROOT / f"{имя}.py").read_text(encoding="utf-8"))
+        for узел in ast.walk(дерево):
+            if isinstance(узел, ast.Import):
+                нужны |= {а.name.split(".")[0] for а in узел.names}
+            elif isinstance(узел, ast.ImportFrom) and узел.level == 0 and узел.module:
+                нужны.add(узел.module.split(".")[0])
+
+    забыты = sorted((нужны & свои) - перечислено - снаружи)
+    assert not забыты, f"свои модули не названы сборщику: {забыты}"

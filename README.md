@@ -269,7 +269,14 @@ Everything lives in one menu — right-click the icon next to the clock:
   about 2 MB per minute of speech.
 - **Горячая клавиша** ("Hotkey") — click the item, then press the key you want.
   Esc keeps the old one.
-- **О программе** ("About") — which model and which key are in use right now.
+- **Язык программы** ("Interface language") — Russian or Kazakh. Applies at
+  once, no restart needed.
+- **Словарь замен** ("Replacement dictionary") — a `Замены.txt` file next to the
+  program: what was heard on the left, what you want on the right. Handy for
+  names and English words the model spells in Cyrillic.
+- **Справка** ("Help") — the same as this section, inside the program: sections
+  on the left, text on the right.
+- **О программе** ("About") — a window with the model, the key and the version.
 
 The choices are stored in a `.env` file next to the program and survive a restart.
 

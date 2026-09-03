@@ -9,9 +9,12 @@
 показывать), методы toggle() и cancel().
 """
 
+import collections
 import threading
 import time
 import tkinter as tk
+
+from messages import t
 
 W, H = 560, 132
 FOOTER = 44  # высота нижней служебной полосы, она непрозрачная
@@ -133,6 +136,7 @@ class VoiceWindow:
         self.should_quit = threading.Event()  # ставит меню в трее
         self._new_hotkey = None  # смена клавиши приходит из чужого потока, применяем в своём
         self._ask_file = False  # просьба показать выбор файла, тоже из чужого потока
+        self._requests = collections.deque()  # окна, заказанные из потока меню
         self.visible = False
         self.heights = [1.0] * BARS
 
@@ -221,6 +225,24 @@ class VoiceWindow:
         """Смена клавиши. Рисовать отсюда нельзя — зовут из потока меню, а Tk этого не терпит."""
         self._new_hotkey = key
 
+    def request(self, work) -> None:
+        """Просьба нарисовать окно. Зовут из потока меню, рисуем в своём.
+
+        Tk работает только в том потоке, где создан, а меню значка живёт в
+        другом: открытое оттуда окно роняет программу примерно через раз.
+        Очередь — самый дешёвый мост между потоками, разбирает её _tick.
+        """
+        self._requests.append(work)
+
+    def _serve_requests(self) -> None:
+        while self._requests:
+            work = self._requests.popleft()
+            try:
+                work(self.root)
+            except Exception as exc:  # окно не должно уносить с собой диктовку
+                print(f"⚠️ Окно не открылось: {exc}")
+                self.rec.announce(t("notice.window_failed"), 5)
+
     def ask_for_file(self) -> None:
         """Просьба из меню показать выбор файла. Само окно откроет _tick.
 
@@ -243,6 +265,8 @@ class VoiceWindow:
             self.on_files(list(paths))
 
     def _tick(self) -> None:
+        if self._requests:
+            self._serve_requests()
         if self._ask_file:
             self._ask_file = False
             self._choose_files()

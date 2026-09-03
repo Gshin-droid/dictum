@@ -25,11 +25,18 @@ def _load():
 
 
 def _klyuchi_iz_koda() -> set:
+    """Ищет ключи во всех файлах программы, а не в перечисленных поимённо.
+
+    Список имён пришлось бы дополнять при каждом новом файле, а забытое имя
+    делает проверку тихо бесполезной: ключи оттуда выглядели бы мёртвыми.
+    Сам messages.py пропускаем — там лежат все ключи разом, и с ним проверка
+    «ключ нигде не используется» не поймала бы ничего.
+    """
     найдено = set()
-    for имя in ("voice_input.py", "voice_window.py"):
-        путь = ROOT / имя
-        if путь.exists():
-            найдено |= set(КЛЮЧ.findall(путь.read_text(encoding="utf-8")))
+    for путь in ROOT.glob("*.py"):
+        if путь.name == "messages.py":
+            continue
+        найдено |= set(КЛЮЧ.findall(путь.read_text(encoding="utf-8")))
     return найдено
 
 
@@ -50,13 +57,17 @@ def test_podstanovka(ms):
 
 
 def test_bez_perevoda_beryotsya_russkiy(ms):
-    """Недоделанный перевод портит вид, но не ломает программу."""
+    """Недоделанный перевод портит вид, но не ломает программу.
+
+    Ключ подкладываем свой: опереться на настоящий нельзя — сегодня он без
+    перевода, завтра переведён, и проверка запаса тихо перестанет его проверять.
+    """
+    ms.TEXTS["menu.выдуманный"] = {"ru": "Выдуманный пункт"}
     ms.set_language("kk")
-    assert ms.t("menu.help") == "Справка"
+    assert ms.t("menu.выдуманный") == "Выдуманный пункт"
 
 
 def test_perevod_ispolzuetsya_kogda_est(ms):
-    ms.TEXTS["menu.help"]["kk"] = "Анықтама"
     ms.set_language("kk")
     assert ms.t("menu.help") == "Анықтама"
 

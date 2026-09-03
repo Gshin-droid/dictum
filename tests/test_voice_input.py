@@ -864,11 +864,24 @@ def test_u_kazhdoy_modeli_est_razmer(monkeypatch):
 
 
 def test_podpisi_modeley_korotkie(monkeypatch):
-    """Подробности живут в справке. Подпись длиной в строку в меню не читают."""
-    module = _load(monkeypatch, _fake()[0])
+    """Подробности живут в справке. Подпись длиной в строку в меню не читают.
 
-    for name, label in module.ASR_MODELS.items():
-        assert len(label) <= 25, f"{name}: подпись «{label}» длиной {len(label)}"
+    Меряем готовую надпись на каждом языке: в ASR_MODELS лежат ключи, и их
+    длина не говорит ни о чём — проверка молча перестала бы работать.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    import messages
+
+    try:
+        for язык in messages.LANGUAGES:
+            messages.set_language(язык)
+            for name, key in module.ASR_MODELS.items():
+                подпись = messages.t(key)
+                assert подпись != key, f"{name}: нет надписи для языка {язык}"
+                assert len(подпись) <= 25, \
+                    f"{name} ({язык}): подпись «{подпись}» длиной {len(подпись)}"
+    finally:
+        messages.set_language(messages.DEFAULT)
 
 
 def test_skachat_pishetsya_tolko_u_otsutstvuyushchih(monkeypatch, tmp_path):
@@ -878,8 +891,10 @@ def test_skachat_pishetsya_tolko_u_otsutstvuyushchih(monkeypatch, tmp_path):
     folder.mkdir(parents=True)
     (folder / "веса.onnx").write_bytes(b"")
 
-    assert module.model_label("gigaam-v3-e2e-rnnt", "Русский") == "Русский"
-    assert module.model_label("gigaam-multilingual-ctc", "Многоязычная") == \
+    # ключи, а не готовые подписи: подписи берутся из общего списка сообщений,
+    # и подставленная сюда строка проверяла бы саму себя
+    assert module.model_label("gigaam-v3-e2e-rnnt", "menu.model_russian") == "Русский"
+    assert module.model_label("gigaam-multilingual-ctc", "menu.model_multi") == \
         "Многоязычная — скачать 225 МБ"
 
 

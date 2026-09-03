@@ -205,6 +205,7 @@ def build(icon: Path, version_file: Path) -> None:
         "--paths", str(ROOT),
         # оба импортируются внутри функций, статический анализатор их не находит
         "--hidden-import", "voice_window",
+        "--hidden-import", "voice_dialogs",
         "--hidden-import", "voice_settings",
         "--hidden-import", "transcribe",
         "--hidden-import", "punctuate",
