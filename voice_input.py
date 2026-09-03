@@ -35,6 +35,7 @@ import sounddevice as sd
 from dotenv import load_dotenv
 
 import replacements
+from messages import t
 
 
 def _app_dir() -> Path:
@@ -112,7 +113,8 @@ def model_label(name: str, label: str) -> str:
     """Подпись пункта меню. Весов нет — говорим, сколько качать."""
     if module_ready(name):
         return label
-    return f"{label} — скачать {MODEL_SIZES.get(name, '')}".rstrip()
+    return t("menu.model_download", label=label,
+             size=MODEL_SIZES.get(name, "")).rstrip(" —")
 
 
 APP_NAME = "Dictum"
@@ -507,13 +509,13 @@ class Recorder:
         она выглядела не запустившейся. Теперь ход загрузки виден в капсуле.
         """
         if not (APP_DIR / "models" / self.asr_model).exists():
-            self._notify("первый запуск: качаю модель, это несколько минут…", 3600)
+            self._notify(t("notice.first_run"), 3600)
         try:
             self.model_name, self._recognize, self._model = load_engine(self.asr_model)
-            self._notify("готово, можно диктовать", 4)
+            self._notify(t("notice.ready"), 4)
             print(f"Готов. Модель: {self.model_name}")
         except Exception as exc:
-            self._notify("модель не загрузилась — выбери другую в меню", 600)
+            self._notify(t("notice.model_failed"), 600)
             print(f"⚠️ Не смог загрузить модель {self.asr_model}: {exc}")
         finally:
             self.switching = False
@@ -530,25 +532,25 @@ class Recorder:
         if name == self.asr_model and self._recognize is not None:
             return True
         if self.switching:  # уже идёт загрузка — второй качалки нам не надо
-            self._notify("модель ещё готовится — подожди")
+            self._notify(t("notice.model_loading"))
             return False
         if self.recording or self.busy:
-            self._notify("сначала закончи диктовку")
+            self._notify(t("notice.finish_first"))
             return False
 
         previous = (self.model_name, self._recognize, self._model, self.asr_model)
         self.switching = True
-        self._notify(f"готовлю модель {name}, это может занять минуты…", 900)
+        self._notify(t("notice.model_preparing", name=name), 900)
         try:
             self.model_name, self._recognize, self._model = load_engine(name)
             self.asr_model = name
             settings.write(APP_DIR / ".env", "ASR_MODEL", name)
-            self._notify("модель готова", 4)
+            self._notify(t("notice.model_ready"), 4)
             print(f"Модель переключена на {name}")
             return True
         except Exception as exc:
             self.model_name, self._recognize, self._model, self.asr_model = previous
-            self._notify("не смог сменить модель", 6)
+            self._notify(t("notice.model_switch_failed"), 6)
             print(f"⚠️ Не смог переключить модель на {name}: {exc}")
             return False
         finally:
@@ -562,46 +564,47 @@ class Recorder:
         import transcribe as tr
 
         if self.switching or self._model is None:
-            self._notify("модель ещё готовится — подожди", 6)
+            self._notify(t("notice.model_loading"), 6)
             return
         if not self.lock.acquire(blocking=False):  # идёт диктовка — не мешаем ей
-            self._notify("сначала закончи диктовку", 6)
+            self._notify(t("notice.finish_first"), 6)
             return
         try:
             self.busy = True  # окно покажет «занято», а клавиша не начнёт запись
             if self._vad is None:
-                with self._working("готовлю нарезчик по тишине…"):
+                with self._working(t("notice.preparing_vad")):
                     self._vad = load_vad()
             for number, name in enumerate(paths, 1):
                 path = Path(name)
                 counter = f"{number} из {len(paths)}: " if len(paths) > 1 else ""
                 try:
-                    self._notify(f"{counter}читаю {path.name}", 300)
+                    self._notify(t("notice.reading_file", counter=counter, name=path.name), 300)
                     audio = tr.read_audio(path)
                     seconds = len(audio) / SAMPLE_RATE
                     print(f"Расшифровываю {path.name}: {seconds / 60:.1f} мин")
 
                     def show(done, counter=counter, seconds=seconds):
-                        self._notify(f"{counter}расшифровываю: {done * 100:.0f}% "
-                                     f"из {seconds / 60:.0f} мин", 300)
+                        self._notify(t("notice.transcribing", counter=counter,
+                                      percent=f"{done * 100:.0f}",
+                                      minutes=f"{seconds / 60:.0f}"), 300)
 
                     started = time.time()
                     text = tr.transcribe(audio, self._model, self._vad, show,
                                          polish=self._polish)
                     if not text:
-                        self._notify(f"{path.name}: речь не распознана", 8)
+                        self._notify(t("notice.file_no_speech", name=path.name), 8)
                         print(f"В {path.name} речи не нашлось")
                         continue
                     target = tr.save(path, text, self.model_name, seconds)
                     print(f"→ {target.name}: слов {len(text.split())}, "
                           f"за {time.time() - started:.0f} с")
-                    self._notify(f"готово: {len(text.split())} слов → {target.name}", 12)
+                    self._notify(t("notice.file_done", words=len(text.split()), name=target.name), 12)
                     os.startfile(target)  # человеку нужен текст, а не путь к нему
                 except tr.AudioError as exc:
-                    self._notify(f"{path.name}: не читается", 10)
+                    self._notify(t("notice.file_unreadable", name=path.name), 10)
                     print(f"⚠️ {path.name}: {exc}")
                 except Exception as exc:
-                    self._notify(f"{path.name}: ошибка расшифровки", 10)
+                    self._notify(t("notice.file_failed", name=path.name), 10)
                     print(f"⚠️ Не смог расшифровать {path.name}: {exc}")
         finally:
             self.busy = False
@@ -613,7 +616,7 @@ class Recorder:
 
         self.save_samples = value
         settings.write(APP_DIR / ".env", "VOICE_SAVE_SAMPLES", "1" if value else "0")
-        self._notify("записи сохраняются" if value else "записи больше не сохраняются", 4)
+        self._notify(t("notice.samples_on" if value else "notice.samples_off"), 4)
 
     def set_punctuate(self, value: bool) -> None:
         """Ставить ли знаки препинания. Выбор запоминается в .env."""
@@ -621,7 +624,7 @@ class Recorder:
 
         self.punctuate = value
         settings.write(APP_DIR / ".env", "VOICE_PUNCTUATE", "1" if value else "0")
-        self._notify("знаки препинания включены" if value else "знаки препинания выключены", 4)
+        self._notify(t("notice.punct_on" if value else "notice.punct_off"), 4)
 
     def copy_last_text(self) -> None:
         """Кладёт последнюю диктовку в буфер обмена.
@@ -633,14 +636,14 @@ class Recorder:
         import pyperclip
 
         if not self.last_text:
-            self._notify("диктовок ещё не было")
+            self._notify(t("notice.nothing_yet"))
             return
         try:
             pyperclip.copy(self.last_text)
-            self._notify("последняя диктовка в буфере", 4)
+            self._notify(t("notice.last_copied"), 4)
         except Exception as exc:
             print(f"⚠️ Не смог положить текст в буфер: {exc}")
-            self._notify("буфер обмена занят другой программой", 6)
+            self._notify(t("notice.clipboard_taken"), 6)
 
     def _polish(self, text: str) -> str:
         """Довести распознанное до вида, в котором его вставляют.
@@ -670,7 +673,7 @@ class Recorder:
             if self._punctuator is None:
                 import punctuate
 
-                with self._working("готовлю знаки препинания…"):
+                with self._working(t("notice.preparing_punct")):
                     self._punctuator = punctuate.load(APP_DIR / "models")
             return self._punctuator.apply(text)
         except Exception as exc:
@@ -696,13 +699,13 @@ class Recorder:
     def _toggle(self) -> None:
         if self.switching:
             if not self.notice_text():  # не затирать «качаю модель», оно важнее
-                self._notify("модель ещё готовится — подожди")
+                self._notify(t("notice.model_loading"))
             return
         if self._recognize is None:
-            self._notify("модель не загрузилась — выбери другую в меню", 8)
+            self._notify(t("notice.model_failed"), 8)
             return
         if not self.lock.acquire(blocking=False):
-            self._notify("микрофон не отвечает — жду драйвер")
+            self._notify(t("notice.mic_busy"))
             return
         try:
             if self.busy:
@@ -724,7 +727,7 @@ class Recorder:
             self.frames = []
             self.levels.clear()
             print("Запись отменена")
-            self._notify("запись отменена", 1.5)
+            self._notify(t("notice.cancelled"), 1.5)
             winsound.Beep(300, 100)
         finally:
             self.lock.release()
@@ -829,13 +832,13 @@ class Recorder:
         try:
             if len(audio) < SAMPLE_RATE * MIN_SECONDS:
                 self.last_text = "(слишком короткая запись)"
-                self._notify("слишком короткая запись")
+                self._notify(t("notice.too_short"))
                 print("Слишком короткая запись — пропускаю")
                 return
             text = self._polish(self._recognize(audio))
             if not text:
                 self.last_text = "(речь не распознана)"
-                self._notify("речь не распознана")
+                self._notify(t("notice.no_speech"))
                 print("Речь не распознана")
                 return
             self.last_text = text
@@ -843,7 +846,7 @@ class Recorder:
             self._paste(text)
         except Exception as exc:
             self.last_text = f"(ошибка: {exc})"
-            self._notify(f"ошибка: {exc}")
+            self._notify(t("notice.error", error=exc))
             print(f"⚠️ Ошибка распознавания: {exc}")
         finally:
             try:
@@ -896,7 +899,7 @@ class Recorder:
             pyperclip.copy(text)
         except Exception as exc:
             print(f"⚠️ Буфер обмена занят другой программой: {exc}")
-            self._notify("буфер занят — текст в меню «Скопировать последнюю диктовку»", 20)
+            self._notify(t("notice.clipboard_busy"), 20)
             return
 
         if landed:
@@ -906,7 +909,7 @@ class Recorder:
                 threading.Timer(1.0, lambda: self._put_back(previous, text)).start()
         else:
             print("Окно не вышло на передний план — текст оставлен в буфере")
-            self._notify("текст в буфере — поставь курсор и вставь", 30)
+            self._notify(t("notice.clipboard_has_text"), 30)
             if previous:
                 self._watch_for_paste(previous, text)
 
@@ -1005,7 +1008,7 @@ def open_the_log() -> None:
     try:
         os.startfile(log_path())
     except OSError as exc:
-        show_error(f"Журнал лежит здесь:\n{log_path()}\n\nОткрыть не вышло: {exc}")
+        show_error(t("error.log_open", path=log_path(), error=exc))
 
 
 def open_help() -> None:
@@ -1084,16 +1087,14 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
         icon.stop()
 
     def on_about(icon, _item=None):
-        text = (
-            f"{hotkey.key.upper()} — начать и остановить диктовку, Esc — отменить.\n"
-            f"Модель: {ASR_MODELS.get(recorder.asr_model, recorder.model_name)}.\n"
-            "Речь обрабатывается на этом компьютере и никуда не отправляется.\n"
-            f"Автор: {APP_AUTHOR}. Открытый код, лицензия MIT: {APP_URL}"
-        )
+        text = t("about.body", key=hotkey.key.upper(),
+                 model=ASR_MODELS.get(recorder.asr_model, recorder.model_name),
+                 author=APP_AUTHOR, url=APP_URL)
         try:
-            icon.notify(text, f"{APP_NAME} {APP_VERSION} — голосовая диктовка")
+            icon.notify(text, t("about.title", app=APP_NAME, version=APP_VERSION))
         except Exception:  # всплывающие подсказки есть не в каждой системе
-            recorder.announce(f"{APP_NAME}: {recorder.model_name}, клавиша {hotkey.key.upper()}", 6)
+            recorder.announce(t("about.short", app=APP_NAME, model=recorder.model_name,
+                                key=hotkey.key.upper()), 6)
 
     def choose_model(name: str):
         return lambda icon, _item=None: in_background(lambda: recorder.switch_model(name))
@@ -1113,39 +1114,39 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
         tray_image(tray_colors()["idle"]),
         APP_TAGLINE,
         menu=pystray.Menu(
-            pystray.MenuItem("Начать / остановить запись", lambda *_: recorder.toggle(),
+            pystray.MenuItem(lambda _item: t("menu.record"), lambda *_: recorder.toggle(),
                              default=True),
-            pystray.MenuItem("Расшифровать аудиофайл…", lambda *_: ask_for_file(),
+            pystray.MenuItem(lambda _item: t("menu.transcribe"), lambda *_: ask_for_file(),
                              visible=ask_for_file is not None),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Язык и модель", pystray.Menu(*model_items)),
+            pystray.MenuItem(lambda _item: t("menu.model"), pystray.Menu(*model_items)),
             pystray.MenuItem(
-                "Расставлять знаки препинания",
+                lambda _item: t("menu.punctuate"),
                 lambda *_: in_background(
                     lambda: recorder.set_punctuate(not recorder.punctuate)
                 ),
                 checked=lambda _item: recorder.punctuate,
                 visible=lambda _item: recorder.asr_model not in PUNCTUATED_BY_MODEL,
             ),
-            pystray.MenuItem("Скопировать последнюю диктовку",
+            pystray.MenuItem(lambda _item: t("menu.copy_last"),
                              lambda *_: in_background(recorder.copy_last_text)),
             pystray.MenuItem(
-                "Сохранять записи на диск",
+                lambda _item: t("menu.save_samples"),
                 lambda *_: in_background(
                     lambda: recorder.set_save_samples(not recorder.save_samples)
                 ),
                 checked=lambda _item: recorder.save_samples,
             ),
             pystray.MenuItem(
-                lambda _item: f"Горячая клавиша: {hotkey.key.upper()}",
+                lambda _item: t("menu.hotkey", key=hotkey.key.upper()),
                 lambda *_: in_background(lambda: capture_hotkey(recorder, hotkey)),
             ),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Словарь замен", lambda *_: open_dictionary()),
-            pystray.MenuItem("Справка", lambda *_: open_help()),
-            pystray.MenuItem("О программе", on_about),
-            pystray.MenuItem("Показать журнал", lambda *_: open_the_log()),
-            pystray.MenuItem("Выход", on_quit),
+            pystray.MenuItem(lambda _item: t("menu.dictionary"), lambda *_: open_dictionary()),
+            pystray.MenuItem(lambda _item: t("menu.help"), lambda *_: open_help()),
+            pystray.MenuItem(lambda _item: t("menu.about"), on_about),
+            pystray.MenuItem(lambda _item: t("menu.log"), lambda *_: open_the_log()),
+            pystray.MenuItem(lambda _item: t("menu.quit"), on_quit),
         ),
     )
 
