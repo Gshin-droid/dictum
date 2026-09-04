@@ -274,11 +274,16 @@ Everything lives in one menu — right-click the icon next to the clock:
 - **Словарь замен** ("Replacement dictionary") — a `Замены.txt` file next to the
   program: what was heard on the left, what you want on the right. Handy for
   names and English words the model spells in Cyrillic.
-- **Справка** ("Help") — the same as this section, inside the program: sections
-  on the left, text on the right.
+- **Справка** ("Help") — the same as this section, inside the program.
 - **О программе** ("About") — a window with the model, the key and the version.
 
 The choices are stored in a `.env` file next to the program and survive a restart.
+
+Help has a window of its own: sections on the left, text on the right. The same
+text also ships as a "Прочти меня.txt" file in the portable copy, for people who
+read before they run anything.
+
+![The Dictum help window](docs/img/spravka.png)
 
 ### Which model to choose
 
