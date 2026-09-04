@@ -269,6 +269,10 @@ Everything lives in one menu — right-click the icon next to the clock:
   about 2 MB per minute of speech.
 - **Горячая клавиша** ("Hotkey") — click the item, then press the key you want.
   Esc keeps the old one.
+- **Длина записи** ("Recording length") — 2, 5 or 10 minutes. On reaching the
+  limit the program stops recording by itself and pastes what it has heard so
+  far. Anything said after that is not recorded — the microphone is already
+  closed, and the capsule says so. A new limit applies from the next dictation.
 - **Язык программы** ("Interface language") — Russian or Kazakh. Applies at
   once, no restart needed.
 - **Словарь замен** ("Replacement dictionary") — a `Замены.txt` file next to the

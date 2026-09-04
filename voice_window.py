@@ -36,6 +36,9 @@ WAVE = {"idle": DIM, "recording": "#e8e8ea", "busy": "#0a84ff"}
 DOT = {"idle": DIM, "recording": "#ff453a", "busy": "#0a84ff"}
 
 BARS = (W - 2 * WAVE_PAD) // WAVE_STEP
+# Волна поднята: внизу тела капсулы освободилась строка под распознанный текст.
+WAVE_MID = (H - FOOTER) / 2 - 6
+PREVIEW_CHARS = 78  # столько влезает в строку шириной с капсулу
 
 
 def rounded(canvas, x1, y1, x2, y2, r, **kw):
@@ -183,12 +186,17 @@ class VoiceWindow:
         rounded(c, 1, H - FOOTER, W - 1, H - 1, r, fill=FOOTER_BG, outline="")
         c.create_rectangle(1, H - FOOTER, W - 1, H - FOOTER + r, fill=FOOTER_BG, outline="")
 
-        mid = (H - FOOTER) / 2 + 4
+        mid = WAVE_MID
         self.bars = [
             c.create_line(WAVE_PAD + i * WAVE_STEP, mid - 1, WAVE_PAD + i * WAVE_STEP, mid + 1,
                           fill=WAVE["idle"], width=2, capstyle="round")
             for i in range(BARS)
         ]
+        # Строка под волной: текст, который уже распознан, пока человек говорит.
+        # Ждать конца диктовки, глядя на волну, — всё равно что ждать вслепую:
+        # непонятно, слышит ли программа вообще.
+        self.preview = c.create_text(W - WAVE_PAD, H - FOOTER - 13, text="", anchor="e",
+                                     fill=DIM, font=("Segoe UI", 9))
 
         row = H - FOOTER / 2
         self.dot = c.create_oval(22, row - 4, 30, row + 4, fill=DOT["idle"], outline="")
@@ -218,7 +226,7 @@ class VoiceWindow:
             return [1.0] * BARS
         levels = levels[-BARS:]
         pad = [0.0] * (BARS - len(levels))
-        top = (H - FOOTER) / 2 - 10
+        top = WAVE_MID - 8
         return [min(1.0, v) * top for v in pad + levels]
 
     def set_hotkey(self, key: str) -> None:
@@ -264,6 +272,20 @@ class VoiceWindow:
         if paths and self.on_files:
             self.on_files(list(paths))
 
+    def _preview_line(self) -> str:
+        """Хвост уже распознанного текста — столько, сколько влезает в строку.
+
+        Показываем именно конец: человек следит за тем, что программа услышала
+        только что, а начало он уже видел. Метода может не быть — окно живёт и
+        со старым объектом записи, например в самопроверке.
+        """
+        готово = getattr(self.rec, "preview_text", lambda: None)()
+        if not готово:
+            return ""
+        if len(готово) <= PREVIEW_CHARS:
+            return готово
+        return "…" + готово[-PREVIEW_CHARS:]
+
     def _tick(self) -> None:
         if self._requests:
             self._serve_requests()
@@ -294,7 +316,7 @@ class VoiceWindow:
         if self.visible:
             c = self.canvas
             targets = self._target_heights(state)
-            mid = (H - FOOTER) / 2 + 4
+            mid = WAVE_MID
             color = WAVE[state]
             for i, bar in enumerate(self.bars):
                 self.heights[i] += (targets[i] - self.heights[i]) * 0.5
@@ -311,6 +333,7 @@ class VoiceWindow:
                 c.itemconfig(self.title, text="Диктовка", fill=TEXT)
             plain = not notice and state != "busy"
             c.itemconfig("modechip", state="normal" if plain else "hidden")
+            c.itemconfig(self.preview, text=self._preview_line())
 
         self.root.after(50, self._tick)
 

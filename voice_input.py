@@ -111,6 +111,20 @@ def module_ready(name: str) -> bool:
     return folder.exists() and any(folder.glob("*.onnx"))
 
 
+def read_minutes(value: str | None) -> int:
+    """Предел записи из настройки. Мусор и число не из списка — умолчание.
+
+    Значение правят и руками в .env. «5 минут», пустая строка, «сто» — всё это
+    не повод не запуститься: непонятное молча заменяется умолчанием, как и
+    незнакомый код языка. Испорченная настройка не должна ломать программу.
+    """
+    try:
+        minutes = int(str(value).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_MINUTES
+    return minutes if minutes in RECORD_MINUTES else DEFAULT_MINUTES
+
+
 def model_label(name: str, key: str) -> str:
     """Подпись пункта меню. Весов нет — говорим, сколько качать."""
     label = t(key)
@@ -130,8 +144,32 @@ APP_AUTHOR = "Gshin-droid"
 APP_URL = "github.com/Gshin-droid/dictum"
 
 SAMPLE_RATE = 16000
-MAX_SECONDS = 120  # предохранитель: авто-стоп, если забыл выключить запись
+# Предохранитель на случай «забыл выключить»: дольше выбранного программа не
+# пишет и останавливается сама. Технических доводов за конкретное число больше
+# нет — нарезка по паузам убрала и рост времени, и потерю текста на длинной
+# записи. Осталась одна причина: сколько человек за раз наговаривает. Поэтому
+# выбор отдан ему, а не зашит числом.
+RECORD_MINUTES = (2, 5, 10)
+DEFAULT_MINUTES = 2
 MIN_SECONDS = 0.3
+
+# Длинную диктовку режем по паузам и распознаём куски, пока человек ещё говорит.
+# Причин три, и ускорение среди них не первая.
+#   1. Модель обучена на кусках до полуминуты и на длинной записи молча
+#      теряет текст. В расшифровке файлов это уже закрыто нарезкой: замер на
+#      трёхминутной записи дал 164 слова без нарезки и 275 с нарезкой.
+#   2. У многоязычной модели время растёт быстрее длины: 5 с записи стоят 0,37 с,
+#      60 с — уже 7,5 с, 120 с — 26 с. Восемь кусков по 15 с обойдутся в 8,8 с.
+#   3. Когда куски считаются во время записи, после клавиши остаётся один.
+CHUNK_MIN_SECONDS = 6.0   # короче не режем: короткую диктовку трогать незачем
+CHUNK_MAX_SECONDS = 20.0  # дольше не копим, даже если человек не делает пауз
+PAUSE_SECONDS = 0.5       # пауза, по которой отрезаем
+# Тишину считаем долей от громкости самого куска, а не по постоянному порогу: у
+# одного микрофон шепчет, у другого шумит, и одно число подошло бы только одному.
+# Постоянный нижний порог тут стоял и был ошибкой: 0,003 оказалось ГРОМЧЕ тихой
+# речи, и на тихом микрофоне тишиной объявлялась сама речь — разрез приходился
+# на середину слова. Поймала проверка, а не глаза.
+SILENCE_SHARE = 0.08
 SINGLE_INSTANCE_PORT = 47811  # локальный порт как замок от второго экземпляра
 LEVELS_KEPT = 200  # история громкости для волны, с запасом на ширину окна
 NOTICE_SECONDS = 3.0  # сколько показывать сообщение вроде «речь не распознана»
@@ -440,7 +478,7 @@ class Recorder:
     """Запись, распознавание и вставка текста. Окно опрашивает состояние снаружи."""
 
     def __init__(self, gain: float = 2.2, asr_model: str = DEFAULT_ASR_MODEL,
-                 save_samples: bool = False):
+                 save_samples: bool = False, max_minutes: int = DEFAULT_MINUTES):
         self.asr_model = asr_model
         self.save_samples = save_samples
         self.model_name = asr_model
@@ -451,6 +489,7 @@ class Recorder:
         self._paste_hooks = []  # слежение за ручной вставкой, см. _watch_for_paste
         self._dictionary = replacements.Dictionary(APP_DIR / replacements.FILE_NAME)
         self.punctuate = True  # выключатель в меню, значение приходит из .env
+        self.max_minutes = max_minutes  # предел одной записи, тоже из меню
         self.switching = True  # грузится или меняется модель: запись пока не начинаем
         self.gain = gain  # чувствительность волны: подкрутить, если полоски вялые или зашкаливают
         self.recording = False
@@ -459,6 +498,14 @@ class Recorder:
         self.target_hwnd = 0  # окно, куда вставлять текст (фокус на момент старта записи)
         self.levels: deque[float] = deque(maxlen=LEVELS_KEPT)
         self.frames: list[np.ndarray] = []
+        # Громкость каждого блока без подкрутки чувствительности и без обрезки по
+        # длине: levels живёт окном на 200 блоков и годится только для волны,
+        # а разрез ищется по всей записи и не должен зависеть от настройки gain.
+        self._rms: list[float] = []
+        self._parts: list[str] = []  # распознанные куски, по порядку
+        self._taken = 0              # сколько блоков уже ушло в куски
+        self._take = 0               # номер записи: отменённая не должна дописаться
+        self._worker: threading.Thread | None = None
         self.stream: sd.InputStream | None = None
         self.started_at = 0.0
         self.lock = threading.Lock()
@@ -629,6 +676,19 @@ class Recorder:
         settings.write(APP_DIR / ".env", "VOICE_PUNCTUATE", "1" if value else "0")
         self._notify(t("notice.punct_on" if value else "notice.punct_off"), 4)
 
+    def set_max_minutes(self, minutes: int) -> None:
+        """Предел одной записи. Выбор запоминается в .env.
+
+        Новый предел вступает в силу со следующей записи: таймер заводится в
+        момент нажатия клавиши, и трогать уже идущую запись нельзя — человек
+        рассчитывал на прежний срок.
+        """
+        import voice_settings as settings
+
+        self.max_minutes = minutes
+        settings.write(APP_DIR / ".env", "VOICE_MAX_MINUTES", str(minutes))
+        self._notify(t("notice.record_length", minutes=minutes), 4)
+
     def set_interface_language(self, code: str) -> None:
         """Язык надписей на экране. Выбор запоминается в .env.
 
@@ -740,8 +800,12 @@ class Recorder:
             if not self.recording:
                 return
             self._close_stream()
+            self._take += 1  # номер сменился: кусок, что сейчас в работе, не допишется
             self.frames = []
             self.levels.clear()
+            self._rms = []
+            self._parts = []
+            self._taken = 0
             print("Запись отменена")
             self._notify(t("notice.cancelled"), 1.5)
             winsound.Beep(300, 100)
@@ -759,6 +823,10 @@ class Recorder:
         self.target_hwnd = ctypes.windll.user32.GetForegroundWindow()
         self.frames = []
         self.levels.clear()
+        self._rms = []
+        self._parts = []
+        self._taken = 0
+        self._take += 1
         print("Открываю микрофон...")  # если следующей строки в логе нет — залип драйвер
         self.stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=1, dtype="float32", callback=self._on_audio
@@ -769,19 +837,114 @@ class Recorder:
         self._bind_esc()
         winsound.Beep(880, 120)
         print("🎙 Запись...")
-        self._timer = threading.Timer(MAX_SECONDS, self._auto_stop)
+        self._worker = threading.Thread(target=self._stream_worker, daemon=True)
+        self._worker.start()
+        self._timer = threading.Timer(self.max_minutes * 60, self._auto_stop)
         self._timer.start()
 
     def _on_audio(self, indata, _frames, _time, _status) -> None:
         chunk = indata[:, 0].copy()
         self.frames.append(chunk)
         rms = float(np.sqrt(np.mean(np.square(chunk)))) if len(chunk) else 0.0
+        # порядок важен: разрезчик берёт min(len(frames), len(_rms)) и потому
+        # никогда не заглянет в блок, для которого громкость ещё не посчитана
+        self._rms.append(rms)
         self.levels.append(min(1.0, rms**0.5 * self.gain))
+
+    # --- нарезка по паузам во время записи --------------------------------
+
+    def find_cut(self, taken: int) -> int:
+        """По какой блок можно отрезать готовый кусок. Ноль — резать рано.
+
+        Ищем паузу в полсекунды не раньше, чем через CHUNK_MIN_SECONDS от начала
+        куска. Не нашли, а кусок дорос до CHUNK_MAX_SECONDS — режем по самому
+        тихому месту: человек может говорить без пауз, но обрывать его на
+        случайном блоке хуже, чем на самом тихом за последние секунды.
+
+        Ничего не нашли — возвращаем ноль, и программа работает как раньше:
+        весь звук уйдёт в распознавание одним куском. Это важное свойство —
+        неудачная нарезка ничего не ломает, а просто не случается.
+        """
+        frames, rms = self.frames, self._rms
+        total = min(len(frames), len(rms))
+        if total <= taken:
+            return 0
+        seconds = np.cumsum([len(frames[i]) for i in range(taken, total)]) / SAMPLE_RATE
+        if seconds[-1] < CHUNK_MIN_SECONDS:
+            return 0
+
+        window = rms[taken:total]
+        quiet = max(window) * SILENCE_SHARE
+        first = int(np.searchsorted(seconds, CHUNK_MIN_SECONDS))
+        run = 0
+        for i in range(first, len(window)):
+            if window[i] >= quiet:
+                run = 0
+                continue
+            run += 1
+            начало = max(0, i - run)
+            if seconds[i] - seconds[начало] >= PAUSE_SECONDS:
+                return taken + i + 1
+        if seconds[-1] >= CHUNK_MAX_SECONDS:
+            return taken + first + int(np.argmin(window[first:])) + 1
+        return 0
+
+    def _stream_worker(self) -> None:
+        """Распознаёт готовые куски, пока человек ещё говорит.
+
+        Живёт в своём потоке и только читает: звук ему кладёт поток микрофона,
+        а сам он ничего не удаляет — полная запись остаётся целой для сохранения
+        копии и для проверки «слишком короткая».
+        """
+        take, taken = self._take, 0
+        while True:
+            cut = self.find_cut(taken) if self._recognize else 0
+            if cut:
+                audio = np.concatenate(self.frames[taken:cut])
+                taken = cut
+                try:
+                    text = self._recognize(audio).strip()
+                except Exception as exc:  # кусок пропал, диктовка — нет
+                    print(f"⚠️ Кусок не распознан: {exc}")
+                    text = ""
+                if take != self._take:  # запись отменили, дописывать некуда
+                    return
+                self._taken = taken
+                if text:
+                    self._parts.append(text)
+                    print(f"→ кусок: {text}")
+                continue
+            if not self.recording:
+                self._taken = taken
+                return
+            time.sleep(0.15)
+
+    def preview_text(self) -> str | None:
+        """Что уже распознано, пока человек ещё говорит. Показывает капсула."""
+        if not self.recording and not self.busy:
+            return None
+        return " ".join(self._parts) or None
+
+    def _collect(self) -> str:
+        """Куски плюс хвост после последнего разреза — весь текст диктовки."""
+        if self._worker is not None:
+            self._worker.join(timeout=self.max_minutes * 60)
+        parts = list(self._parts)
+        tail = self.frames[self._taken:]
+        if tail:
+            audio = np.concatenate(tail)
+            if len(audio) >= SAMPLE_RATE * MIN_SECONDS:
+                parts.append(self._recognize(audio).strip())
+        return " ".join(part for part in parts if part)
 
     def _auto_stop(self) -> None:
         with self.lock:
-            if self.recording and time.time() - self.started_at >= MAX_SECONDS:
-                print(f"⏱ Авто-стоп после {MAX_SECONDS} с")
+            if self.recording and time.time() - self.started_at >= self.max_minutes * 60:
+                print(f"⏱ Авто-стоп после {self.max_minutes} мин")
+                # На экране об этом надо сказать: микрофон уже закрыт, и всё,
+                # что человек говорит дальше, не записывается вовсе. Раньше
+                # это было видно только в журнале, куда никто не смотрит.
+                self._notify(t("notice.auto_stop", minutes=self.max_minutes), 6)
                 self._stop()
 
     def _close_stream(self) -> None:
@@ -851,7 +1014,10 @@ class Recorder:
                 self._notify(t("notice.too_short"))
                 print("Слишком короткая запись — пропускаю")
                 return
-            text = self._polish(self._recognize(audio))
+            # Знаки препинания ставятся один раз по собранному тексту, а не по
+            # кускам: на куске модель не видит, где кончается мысль, и границы
+            # предложений с заглавными поехали бы. Стоит это 18 мс.
+            text = self._polish(self._collect())
             if not text:
                 self.last_text = "(речь не распознана)"
                 self._notify(t("notice.no_speech"))
@@ -1156,6 +1322,21 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
 
     # Подписи языков не переводятся: «Қазақша» человек узнаёт именно в таком
     # виде, а «Казахский» на казахском ему ничего не скажет.
+    def choose_minutes(minutes: int):
+        return lambda icon, _item=None: in_background(
+            lambda: recorder.set_max_minutes(minutes)
+        )
+
+    length_items = [
+        pystray.MenuItem(
+            (lambda m: lambda _item: t("menu.minutes", minutes=m))(minutes),
+            choose_minutes(minutes),
+            checked=(lambda m: lambda _item: recorder.max_minutes == m)(minutes),
+            radio=True,
+        )
+        for minutes in RECORD_MINUTES
+    ]
+
     language_items = [
         pystray.MenuItem(
             (lambda l: lambda _item: l)(label),
@@ -1198,6 +1379,8 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
                 lambda _item: t("menu.hotkey", key=hotkey.key.upper()),
                 lambda *_: in_background(lambda: capture_hotkey(recorder, hotkey)),
             ),
+            pystray.MenuItem(lambda _item: t("menu.record_length"),
+                             pystray.Menu(*length_items)),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(lambda _item: t("menu.interface_language"),
                              pystray.Menu(*language_items)),
@@ -1269,6 +1452,7 @@ def main() -> None:
     # Язык надписей на экране. Незнакомый код messages молча пропустит и оставит
     # русский: испорченная настройка не должна превращать меню в пустые строки.
     messages.set_language(os.getenv("VOICE_LANG", messages.DEFAULT))
+    max_minutes = read_minutes(os.getenv("VOICE_MAX_MINUTES"))
 
     if args.check:
         sys.exit(check(asr_model))
@@ -1277,7 +1461,7 @@ def main() -> None:
 
     # Если программа уже работает, этот вызов не вернётся: файлы уйдут ей, а мы выйдем
     lock = ensure_single_instance(args.files)
-    recorder = Recorder(gain, asr_model, save_samples)
+    recorder = Recorder(gain, asr_model, save_samples, max_minutes)
     recorder.punctuate = punctuate_on
     hotkey = Hotkey(hotkey_key, recorder.toggle)
     listen_for_files(lock, recorder.transcribe_files)

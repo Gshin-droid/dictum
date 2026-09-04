@@ -42,32 +42,20 @@ def _fake(on_press_ok: bool = True):
 
 
 def _idle_recorder(module):
-    """Recorder без загрузки Whisper — нужны только поля, которые читает управление."""
-    rec = module.Recorder.__new__(module.Recorder)
-    rec.lock = threading.Lock()
-    rec.busy = False
-    rec.recording = False
-    rec.last_text = ""
-    rec.gain = 2.2
-    rec.frames = []
-    rec.levels = module.deque(maxlen=module.LEVELS_KEPT)
-    rec._notice = ("", 0.0)
-    rec._esc_hook = None
-    rec._timer = None
-    rec.stream = None
+    """Recorder без модели распознавания.
+
+    Собираем настоящим конструктором, а не выкладываем поля руками: раньше
+    список полей жил здесь копией и отставал при каждом новом. Отставание
+    выглядело как поломка программы, хотя ломался список в проверке.
+    Конструктор ничего тяжёлого не делает — модель грузит отдельный load().
+    """
+    rec = module.Recorder(gain=2.2, asr_model=module.DEFAULT_ASR_MODEL, save_samples=True)
     rec.switching = False
-    rec.save_samples = True
-    rec.asr_model = module.DEFAULT_ASR_MODEL
-    rec.model_name = module.DEFAULT_ASR_MODEL
     rec._recognize = lambda audio: "распознано"
     rec._model = object()  # заглушка: управлению хватает того, что она не None
-    rec._vad = None
     rec.language = "ru"
-    rec._punctuator = None
-    rec.punctuate = True
-    rec._paste_hooks = []
     rec.target_hwnd = 12345
-    rec._dictionary = _NoDictionary()
+    rec._dictionary = _NoDictionary()  # свой Замены.txt не должен влиять на проверки
     return rec
 
 
@@ -1038,3 +1026,265 @@ def test_soobshchenie_o_smene_na_novom_yazyke(monkeypatch, tmp_path):
     finally:
         module.messages.TEXTS["notice.language_set"].pop("kk", None)
         module.messages.set_language(module.messages.DEFAULT)
+
+
+# --- нарезка длинной диктовки по паузам ------------------------------------
+
+
+def _zapis(module, куски):
+    """Собирает поддельную запись из пар «громкость, секунды».
+
+    Блоки по 0,1 с — как у настоящего микрофона по порядку величины. Звук
+    заполняем номером блока, чтобы потом доказать: ни один не потерялся.
+    """
+    рec_frames, рec_rms = [], []
+    номер = 0
+    for громкость, секунды in куски:
+        for _ in range(int(секунды * 10)):
+            рec_frames.append(np.full(module.SAMPLE_RATE // 10, float(номер), dtype="float32"))
+            рec_rms.append(громкость)
+            номер += 1
+    return рec_frames, рec_rms
+
+
+def test_korotkuyu_diktovku_ne_rezhem(monkeypatch):
+    """Диктовка на пару секунд обрабатывается как раньше — одним куском."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.frames, rec._rms = _zapis(module, [(0.05, 3.0)])
+
+    assert rec.find_cut(0) == 0
+
+
+def test_rezhem_po_pauze(monkeypatch):
+    """Пауза в полсекунды после достаточного куска — место разреза."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.frames, rec._rms = _zapis(module, [(0.05, 8.0), (0.0005, 0.8), (0.05, 4.0)])
+
+    разрез = rec.find_cut(0)
+    assert разрез, "пауза не найдена"
+    # разрез должен попасть внутрь паузы, а не в речь
+    assert 80 < разрез <= 88, f"разрез на блоке {разрез} — это уже не пауза"
+
+
+def test_bez_pauzy_rezhem_po_samomu_tihomu(monkeypatch):
+    """Человек может говорить без пауз. Дольше предела копить нельзя: у
+    многоязычной модели время растёт быстрее длины, а качество падает."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    # ровная речь, а на 15-й секунде чуть тише — туда и должен прийтись разрез
+    rec.frames, rec._rms = _zapis(module, [(0.05, 15.0), (0.02, 0.3), (0.05, 10.0)])
+
+    разрез = rec.find_cut(0)
+    assert 150 < разрез <= 154, f"разрез на блоке {разрез}, а тише всего было на 150–153"
+
+
+def test_tishina_schitaetsya_ot_gromkosti_kuska(monkeypatch):
+    """Тихий микрофон не должен превращать всю запись в сплошную тишину.
+
+    Порог берётся долей от громкости самого куска: у одного микрофон шепчет,
+    у другого шумит, и одно постоянное число подошло бы только одному из них.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    # вся запись в двадцать раз тише обычной, но пауза в ней различима
+    rec.frames, rec._rms = _zapis(module, [(0.0025, 8.0), (0.00002, 0.8), (0.0025, 4.0)])
+
+    разрез = rec.find_cut(0)
+    # мало убедиться, что разрез нашёлся: постоянный порог «всё тише 0,01 —
+    # тишина» тоже что-нибудь найдёт, только не там. Проверяем именно место
+    assert 80 < разрез <= 88, f"разрез на блоке {разрез} — это не пауза, а речь"
+
+
+def test_razrez_ne_ubegaet_za_gotovye_bloki(monkeypatch):
+    """Разрез не может указывать дальше того, что уже записано.
+
+    Если укажет — хвост в _collect окажется пустым срезом, и последние слова
+    исчезнут молча. Запись здесь обрывается ровно на конце паузы, то есть в
+    самом опасном месте.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.frames, rec._rms = _zapis(module, [(0.05, 8.0), (0.0005, 0.5)])
+
+    разрез = rec.find_cut(0)
+    assert разрез <= len(rec.frames), (
+        f"разрез на блоке {разрез}, а записано всего {len(rec.frames)}")
+
+
+def test_narezka_ne_teryaet_zvuk(monkeypatch):
+    """Главное свойство: куски вместе с хвостом дают исходную запись целиком.
+
+    Потерянный блок — это пропавшее слово, и заметить его нечем: ошибки нет,
+    текст просто короче. Поэтому проверяем не текст, а покрытие блоков.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.frames, rec._rms = _zapis(module, [
+        (0.05, 9.0), (0.0005, 0.7),
+        (0.06, 7.0), (0.0004, 0.9),
+        (0.04, 25.0),            # длинный кусок без пауз — пойдёт принудительный разрез
+        (0.0005, 0.6), (0.05, 3.0),
+    ])
+
+    границы, взято = [], 0
+    while True:
+        разрез = rec.find_cut(взято)
+        if not разрез:
+            break
+        границы.append((взято, разрез))
+        взято = разрез
+    границы.append((взято, len(rec.frames)))  # хвост, его берёт _collect
+
+    assert len(границы) > 2, f"нарезка не сработала вовсе: {границы}"
+    покрыто = [номер for начало, конец in границы for номер in range(начало, конец)]
+    assert покрыто == list(range(len(rec.frames))), "блоки потерялись или удвоились"
+
+
+def test_sobrannyy_tekst_iz_kuskov_i_hvosta(monkeypatch):
+    """Куски и хвост склеиваются в один текст, знаки ставятся по нему целиком."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.frames, rec._rms = _zapis(module, [(0.05, 5.0)])
+    rec._parts = ["первый кусок", "второй кусок"]
+    rec._taken = len(rec.frames) - 10  # последняя секунда осталась хвостом
+    rec._recognize = lambda audio: "хвост"
+
+    assert rec._collect() == "первый кусок второй кусок хвост"
+
+
+def test_otmena_ne_dopisyvaet_kusok_v_sleduyushchuyu_zapis(monkeypatch):
+    """Кусок, распознававшийся в момент Esc, не должен всплыть в новой диктовке."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.recording = True
+    rec.stream = types.SimpleNamespace(stop=lambda: None, close=lambda: None)
+    rec._take = 5
+
+    rec.cancel()
+    time.sleep(0.05)
+
+    assert rec._parts == []
+    assert rec._take != 5, "номер записи не сменился — старый кусок допишется в новую"
+
+
+def test_predprosmotr_pokazyvaet_uzhe_raspoznannoe(monkeypatch):
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+
+    assert rec.preview_text() is None, "в покое показывать нечего"
+    rec.recording = True
+    assert rec.preview_text() is None, "куски ещё не готовы"
+    rec._parts = ["уже распознано"]
+    assert rec.preview_text() == "уже распознано"
+
+
+def test_kuski_uznayutsya_poka_chelovek_eshchyo_govorit(monkeypatch):
+    """Ради этого нарезка и делалась: к моменту клавиши работа уже сделана.
+
+    Проверяем не время, а порядок событий: кусок обязан быть распознан ДО того,
+    как запись закончилась. Замер времени тут был бы капризным, а порядок — нет.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.recording = True
+
+    распознан = threading.Event()
+
+    def узнать(audio):
+        распознан.set()
+        return "кусок"
+
+    rec._recognize = узнать
+
+    работник = threading.Thread(target=rec._stream_worker, daemon=True)
+    работник.start()
+    try:
+        # микрофон «кладёт» звук: восемь секунд речи, потом пауза
+        for громкость, секунды in ((0.05, 8.0), (0.0005, 0.8)):
+            for _ in range(int(секунды * 10)):
+                rec.frames.append(np.zeros(module.SAMPLE_RATE // 10, dtype="float32"))
+                rec._rms.append(громкость)
+
+        assert распознан.wait(3), "кусок не распознан, пока запись ещё шла"
+        assert rec.recording, "проверка потеряла смысл: запись успела кончиться"
+        assert rec.preview_text() == "кусок", "капсуле нечего показать"
+    finally:
+        rec.recording = False
+        работник.join(timeout=3)
+
+    assert rec._parts == ["кусок"]
+    assert rec._taken > 0, "разрез не отмечен, хвост посчитается заново"
+
+
+# --- предел одной записи ---------------------------------------------------
+
+
+def test_predel_zapisi_beryot_tolko_izvestnye_znacheniya(monkeypatch):
+    """Настройку правят и руками в .env. Мусор не должен мешать запуску."""
+    module = _load(monkeypatch, _fake()[0])
+
+    for значение in ("2", "5", "10", " 5 "):
+        assert module.read_minutes(значение) == int(значение.strip())
+    for мусор in (None, "", "сто", "5 минут", "3", "0", "-5", "999", "2.5"):
+        assert module.read_minutes(мусор) == module.DEFAULT_MINUTES, f"мусор «{мусор}» прошёл"
+
+
+def test_vybor_predela_zapominaetsya(monkeypatch, tmp_path):
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    rec = _idle_recorder(module)
+
+    rec.set_max_minutes(10)
+
+    assert rec.max_minutes == 10
+    import voice_settings as settings
+    assert settings.read_all(tmp_path / ".env")["VOICE_MAX_MINUTES"] == "10"
+    assert "10" in rec.notice_text(), f"человеку не сказали про выбор: {rec.notice_text()}"
+
+
+def test_predel_beryotsya_iz_nastroyki_a_ne_zashit(monkeypatch):
+    """Таймер обязан заводиться на выбранный срок, а не на прежние две минуты."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.max_minutes = 10
+    заведено = []
+
+    class Таймер:
+        def __init__(self, секунды, работа):
+            заведено.append(секунды)
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            pass
+
+    monkeypatch.setattr(module.threading, "Timer", Таймер)
+    monkeypatch.setattr(module.sd, "InputStream",
+                        lambda **kw: types.SimpleNamespace(start=lambda: None,
+                                                           stop=lambda: None,
+                                                           close=lambda: None))
+    import ctypes
+    monkeypatch.setattr(ctypes.windll.user32, "GetForegroundWindow", lambda: 1)
+    rec._start()
+    rec.recording = False
+
+    assert заведено == [600], f"таймер заведён на {заведено} с вместо 600"
+
+
+def test_avtostop_govorit_ob_etom_na_ekrane(monkeypatch):
+    """Микрофон закрыт, и всё сказанное дальше пропадёт. Молчать об этом нельзя."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.max_minutes = 2
+    rec.recording = True
+    rec.started_at = time.time() - 121
+    rec.stream = _FakeStream()
+    rec._stop = lambda: None
+
+    rec._auto_stop()
+
+    сообщение = rec.notice_text()
+    assert сообщение and "2" in сообщение, f"на экране ничего не сказано: {сообщение}"
