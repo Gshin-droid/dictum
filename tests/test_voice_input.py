@@ -1317,3 +1317,173 @@ def test_diktovka_ostayotsya_v_bufere_posle_avtovstavki(monkeypatch):
         f"диктовка пропала из буфера, там теперь {board.value!r}")
     assert [combo for combo, _ in hooks] == ["ctrl+v", "shift+insert"], (
         "слежение за ручной вставкой должно стоять и после автоматической")
+
+
+def test_ctrl_v_ne_uhodit_poka_v_bufere_ne_nash_tekst(monkeypatch):
+    """Буфер не принял диктовку — Ctrl+V слать нельзя: вставится чужое.
+
+    Раньше между copy() и Ctrl+V стояла глухая пауза в 50 мс. Пауза — это
+    ставка на то, что буфер успел обновиться; под нагрузкой ставка не играет,
+    и в чужое окно уходит прежнее содержимое буфера вместо диктовки (у Handy
+    это открытый дефект #502). Испорченный чужим текстом документ обратно не
+    соберёшь, поэтому при недоказанном буфере вставка не отправляется вовсе.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    board = _fake_clipboard(monkeypatch, "чужой текст из буфера")
+    board.copy = lambda text: None  # copy молча не сработал: буфер держит чужое
+    monkeypatch.setitem(sys.modules, "pyperclip",
+                        types.SimpleNamespace(copy=board.copy, paste=board.paste))
+    sent, _ = _fake_kb(monkeypatch)
+    rec._focus_target = lambda: True
+
+    rec._paste("расшифрованный текст")
+
+    assert sent == [], f"в буфере чужое, а Ctrl+V всё равно ушёл: {sent}"
+    assert board.value == "чужой текст из буфера", "чужое содержимое трогать не должны"
+
+
+def test_clipboard_holds_vidit_svoy_tekst_srazu(monkeypatch):
+    """Обычный случай: буфер отдал наш текст с первой попытки, ждать нечего."""
+    module = _load(monkeypatch, _fake()[0])
+    board = _fake_clipboard(monkeypatch, "расшифрованный текст")
+
+    started = time.time()
+    assert module.clipboard_holds("расшифрованный текст") is True
+    assert time.time() - started < 0.05, "первая удачная попытка не должна ждать"
+    assert module.clipboard_holds("что-то другое", tries=2, pause=0.01) is False
+    assert board.value == "расшифрованный текст"
+
+
+def test_korotkiy_hvost_ne_propadaet(monkeypatch):
+    """Четверть секунды речи после последнего разреза — тоже слово.
+
+    Хвосту доставался порог MIN_SECONDS (0,3 с), придуманный для другого
+    вопроса — «не задел ли человек клавишу случайно». Сказал «...решение. Да»,
+    разрез прошёл по паузе перед «да» — и последнее слово молча выбрасывалось.
+    У Handy это открытый дефект #1983.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    отдано = []
+    rec._recognize = lambda audio: отдано.append(len(audio)) or "да"
+    rec._parts = ["мы приняли решение."]
+    rec._taken = 0
+    хвост = int(module.SAMPLE_RATE * 0.25)
+    rec.frames = [np.zeros(хвост, dtype=np.float32)]
+
+    assert rec._collect() == "мы приняли решение. да", "последнее слово потеряно"
+    assert отдано == [хвост], "хвост обязан дойти до распознавания целиком"
+
+
+def test_obryvok_koroche_poroga_ne_idet_v_model(monkeypatch):
+    """Нижний порог всё-таки нужен: щелчок отпускания клавиши — не речь."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec._recognize = lambda audio: pytest.fail("обрывок в 50 мс не должен идти в модель")
+    rec._parts = ["готовый кусок"]
+    rec._taken = 0
+    rec.frames = [np.zeros(int(module.SAMPLE_RATE * 0.05), dtype=np.float32)]
+
+    assert rec._collect() == "готовый кусок"
+
+
+def test_mertvyy_mikrofon_nazyvaetsya_svoim_imenem(monkeypatch):
+    """Цифровая тишина — беда настроек звука, а не дикции.
+
+    Раньше пустой ответ модели одинаково назывался «речь не распознана», и
+    человек чинил бы дикцию, тогда как устройством ввода оказался не микрофон.
+    У Handy это открытый дефект #1899: тишина уходит в модель, та возвращает
+    пустоту, и программа молчит о причине.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    сказано = []
+    rec._notify = lambda text, *a, **kw: сказано.append(text)
+    rec._recognize = lambda audio: ""
+    rec._save_sample = lambda *a, **kw: None
+
+    rec._transcribe_and_type(np.zeros(module.SAMPLE_RATE, dtype=np.float32))
+
+    assert rec.last_text == "(микрофон молчит)", f"назвали иначе: {rec.last_text}"
+    assert сказано and "микрофон" in сказано[0], f"на экране: {сказано}"
+
+
+def test_tihaya_rech_ne_obvinyaet_mikrofon(monkeypatch):
+    """Звук был, а слов не разобрали — это по-прежнему «речь не распознана»."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec._notify = lambda *a, **kw: None
+    rec._recognize = lambda audio: ""
+    rec._save_sample = lambda *a, **kw: None
+    шёпот = np.full(module.SAMPLE_RATE, 0.01, dtype=np.float32)
+
+    rec._transcribe_and_type(шёпот)
+
+    assert rec.last_text == "(речь не распознана)", f"назвали иначе: {rec.last_text}"
+
+
+class _ПоддельныйЗвук:
+    """sounddevice, у которого первый вызов падает как в отчёте о поломке."""
+
+    class PortAudioError(Exception):
+        pass
+
+    def __init__(self, падений: int):
+        self.осталось = падений
+        self.перечитано = 0
+        self.открыто = 0
+
+    def InputStream(self, **kw):
+        if self.осталось:
+            self.осталось -= 1
+            raise self.PortAudioError(
+                "Error opening InputStream: Unanticipated host error [PaErrorCode -9999]: "
+                "'A device ID has been used that is out of range for your system.' [MME error 2]")
+        self.открыто += 1
+        return types.SimpleNamespace(start=lambda: None, stop=lambda: None,
+                                     close=lambda: None, active=True)
+
+    def _terminate(self):
+        self.перечитано += 1
+
+    def _initialize(self):
+        pass
+
+
+def test_protuhshiy_spisok_ustroystv_perechityvaetsya(monkeypatch):
+    """Список устройств протух — перечитать и открыть заново, а не падать.
+
+    PortAudio перечисляет устройства один раз, при загрузке sounddevice.
+    Программа живёт в трее сутками: человек подключился к конференции, та
+    забрала микрофон, номера MME переназначились — и запомненный номер стал
+    чужим. Лечится скрытыми _terminate/_initialize (python-sounddevice#3).
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    звук = _ПоддельныйЗвук(падений=1)
+    monkeypatch.setattr(module, "sd", звук)
+
+    поток = rec._open_stream()
+
+    assert звук.перечитано == 1, "список устройств не перечитан"
+    assert звук.открыто == 1 and поток is not None, "микрофон так и не открылся"
+
+
+def test_otkaz_mikrofona_ne_ronyaet_programmu(monkeypatch):
+    """Микрофон не открылся совсем — программа обязана выжить и сказать об этом.
+
+    Раньше исключение уходило наверх, поток управления умирал, и клавиша
+    молчала до перезапуска при живом значке в трее.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    monkeypatch.setattr(module, "sd", _ПоддельныйЗвук(падений=2))  # и повтор не помог
+    сказано = []
+    rec._notify = lambda text, *a, **kw: сказано.append(text)
+
+    rec._toggle()  # не должен бросить
+
+    assert rec.recording is False, "запись не могла начаться"
+    assert сказано and "икрофон" in сказано[0], f"на экране: {сказано}"
+    assert not rec.lock.locked(), "замок микрофона не отпущен"

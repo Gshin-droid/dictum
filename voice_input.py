@@ -138,7 +138,7 @@ APP_NAME = "Dictum"
 # Три числа: ломающее изменение . новые возможности . исправления.
 # Единственное место, где версия записана: отсюда её берут «О программе», журнал
 # и свойства exe, которые показывает проводник Windows.
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.2"
 APP_TAGLINE = f"{APP_NAME} — голосовая диктовка"
 APP_AUTHOR = "Gshin-droid"
 APP_URL = "github.com/Gshin-droid/dictum"
@@ -163,6 +163,17 @@ MIN_SECONDS = 0.3
 #   3. Когда куски считаются во время записи, после клавиши остаётся один.
 CHUNK_MIN_SECONDS = 6.0   # короче не режем: короткую диктовку трогать незачем
 CHUNK_MAX_SECONDS = 20.0  # дольше не копим, даже если человек не делает пауз
+# Хвост после последнего разреза — не то же самое, что вся запись, и порог ему
+# нужен свой. MIN_SECONDS = 0,3 с отвечает на вопрос «не задел ли человек
+# клавишу случайно»; хвосту тот же порог стоил бы последнего слова: сказал
+# «...решение. Да», разрез прошёл по паузе перед «да» — и четверть секунды речи
+# молча выброшена. У Handy это открытый дефект #1983 «пропадает последнее слово».
+# Пустой ответ модели отсеется сам, а вот выброшенное слово не вернуть.
+TAIL_MIN_SECONDS = 0.1
+# Цифровая тишина — не «сказал тихо», а «звука не было вовсе»: устройством ввода
+# оказался не микрофон либо он отключён. От тихой речи отличается на порядки,
+# поэтому порог берём у самого нуля и не подбираем его под чей-то микрофон.
+SILENT_PEAK = 1e-4
 PAUSE_SECONDS = 0.5       # пауза, по которой отрезаем
 # Тишину считаем долей от громкости самого куска, а не по постоянному порогу: у
 # одного микрофон шепчет, у другого шумит, и одно число подошло бы только одному.
@@ -472,6 +483,33 @@ def load_vad():
     folder.mkdir(parents=True, exist_ok=True)
     (folder / MODEL_READY_MARK).touch()
     return vad
+
+
+def clipboard_holds(text: str, tries: int = 10, pause: float = 0.05) -> bool:
+    """Правда ли, что в буфере обмена лежит ровно наш текст.
+
+    Ждём не время, а свидетельство. Слепая пауза перед Ctrl+V — это ставка на то,
+    что буфер успел обновиться; под нагрузкой ставка не играет, и в чужое окно
+    уходит прежнее содержимое буфера вместо диктовки. У Handy это открытый
+    дефект #502, лечат его там наращиванием паузы — то есть той же ставкой,
+    только крупнее.
+
+    Первая попытка обычно и последняя: `copy()` в Windows возвращается уже после
+    записи. Повторы нужны для менеджеров буфера (Win+V, Ditto, Punto Switcher):
+    они отбирают владение и отдают обратно не мгновенно.
+
+    Перевод строки Windows хранит как \\r\\n, поэтому сравниваем нормализованно.
+    """
+    import pyperclip
+
+    for _ in range(tries):
+        try:
+            if (pyperclip.paste() or "").replace("\r\n", "\n") == text:
+                return True
+        except Exception:
+            pass  # буфер под замком у чужой программы — подождём и спросим ещё раз
+        time.sleep(pause)
+    return False
 
 
 class Recorder:
@@ -787,7 +825,16 @@ class Recorder:
             if self.busy:
                 return
             if not self.recording:
-                self._start()
+                # Отказ микрофона не имеет права уронить программу: раньше
+                # исключение уходило наверх, поток управления умирал вместе с
+                # ним, и клавиша молчала до перезапуска — при живом значке в
+                # трее. Одна несостоявшаяся диктовка дешевле мёртвой программы.
+                try:
+                    self._start()
+                except Exception as exc:
+                    self.recording = False
+                    print(f"⚠️ Микрофон не открылся: {exc}")
+                    self._notify(t("notice.mic_failed"), 8)
             else:
                 self._stop()
         finally:
@@ -828,9 +875,7 @@ class Recorder:
         self._taken = 0
         self._take += 1
         print("Открываю микрофон...")  # если следующей строки в логе нет — залип драйвер
-        self.stream = sd.InputStream(
-            samplerate=SAMPLE_RATE, channels=1, dtype="float32", callback=self._on_audio
-        )
+        self.stream = self._open_stream()
         self.stream.start()
         self.recording = True
         self.started_at = time.time()
@@ -841,6 +886,34 @@ class Recorder:
         self._worker.start()
         self._timer = threading.Timer(self.max_minutes * 60, self._auto_stop)
         self._timer.start()
+
+    def _open_stream(self):
+        """Открывает микрофон, перечитав список устройств, если он протух.
+
+        PortAudio перечисляет устройства ОДИН раз — когда загружается
+        sounddevice. Программа живёт в трее сутками, и за это время список
+        меняется: конференция забирает микрофон, подключается гарнитура,
+        Windows переназначает номера устройств MME. Запомненный номер тогда
+        указывает в пустоту, и открытие падает с «a device ID has been used
+        that is out of range». Пришло из отчёта о поломке: программа
+        проработала сутки, человек подключился к конференции — и диктовка
+        умерла до перезапуска.
+
+        Перечитать список можно только скрытыми _terminate/_initialize. Средство
+        не самодеятельное: его называет сам сопровождающий библиотеки в
+        python-sounddevice#3, в открытый интерфейс их так и не вынесли.
+        """
+        def открыть():
+            return sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
+                                  dtype="float32", callback=self._on_audio)
+
+        try:
+            return открыть()
+        except sd.PortAudioError as exc:
+            print(f"Микрофон не открылся ({exc}) — перечитываю список устройств")
+            sd._terminate()
+            sd._initialize()
+            return открыть()  # не помогло — пусть падает наверх, там об этом скажут
 
     def _on_audio(self, indata, _frames, _time, _status) -> None:
         chunk = indata[:, 0].copy()
@@ -933,7 +1006,7 @@ class Recorder:
         tail = self.frames[self._taken:]
         if tail:
             audio = np.concatenate(tail)
-            if len(audio) >= SAMPLE_RATE * MIN_SECONDS:
+            if len(audio) >= SAMPLE_RATE * TAIL_MIN_SECONDS:
                 parts.append(self._recognize(audio).strip())
         return " ".join(part for part in parts if part)
 
@@ -1019,6 +1092,16 @@ class Recorder:
             # предложений с заглавными поехали бы. Стоит это 18 мс.
             text = self._polish(self._collect())
             if not text:
+                # «Ничего не распознано» и «микрофон не звучал» — разные беды с
+                # разным лечением, а выглядели одинаково. Если устройством ввода
+                # оказался не микрофон, программа честно пишет цифровую тишину и
+                # молча отдаёт пустоту (у Handy это открытый дефект #1899).
+                # Человеку в этом случае надо чинить не дикцию, а настройки звука.
+                if not len(audio) or float(np.max(np.abs(audio))) < SILENT_PEAK:
+                    self.last_text = "(микрофон молчит)"
+                    self._notify(t("notice.no_sound"), 8)
+                    print("⚠️ В записи цифровая тишина — микрофон ничего не дал")
+                    return
                 self.last_text = "(речь не распознана)"
                 self._notify(t("notice.no_speech"))
                 print("Речь не распознана")
@@ -1084,12 +1167,18 @@ class Recorder:
             self._notify(t("notice.clipboard_busy"), 20)
             return
 
-        if landed:
-            time.sleep(0.05)
-            keyboard.send("ctrl+v")
-        else:
+        if not landed:
             print("Окно не вышло на передний план — текст оставлен в буфере")
             self._notify(t("notice.clipboard_has_text"), 30)
+        elif clipboard_holds(text):
+            keyboard.send("ctrl+v")
+        else:
+            # Ctrl+V сейчас вставил бы чужое. Молчать нельзя, но и слать нельзя:
+            # испорченный чужим текстом документ обратно не соберёшь, а диктовка
+            # никуда не делась — она в last_text и в меню.
+            print("⚠️ В буфере не наш текст — Ctrl+V не отправляю")
+            self._notify(t("notice.clipboard_busy"), 20)
+            return
 
         # Прежнее содержимое возвращаем ТОЛЬКО когда человек вставил сам.
         # Раньше после нашего Ctrl+V оно возвращалось по таймеру, и это стоило
@@ -1126,6 +1215,11 @@ class Recorder:
                 self._paste_hooks.append(keyboard.add_hotkey(combo, on_paste, suppress=False))
             except Exception as exc:
                 print(f"Не смог следить за {combo}: {exc}")
+        # Молчим, когда всё встало: строка на каждую диктовку — шум. Говорим
+        # только о недостаче, иначе «возврат не работает» опять будет без причины.
+        if len(self._paste_hooks) < 2:
+            print(f"Слежение за ручной вставкой встало не полностью: "
+                  f"{len(self._paste_hooks)} из 2 — возврат буфера может не сработать")
 
     def _forget_paste_watch(self) -> None:
         """Снимает слежение за вставкой. Зовётся и при новой диктовке: старое
@@ -1149,8 +1243,16 @@ class Recorder:
 
         self._forget_paste_watch()
         try:
-            if pyperclip.paste() == ours:
+            сейчас = pyperclip.paste()
+            if сейчас == ours:
                 pyperclip.copy(previous)
+                print("Прежнее содержимое буфера возвращено")
+            else:
+                # Молчать тут нельзя: снаружи это выглядит как «возврат не
+                # работает», а на деле буфер занял кто-то другой — и его копию
+                # мы намеренно не трогаем.
+                print(f"Возврат отменён: в буфере уже не наша диктовка "
+                      f"({len(сейчас or '')} знаков вместо {len(ours)})")
         except Exception as exc:
             print(f"Не вернул буфер обмена: {exc}")
 
