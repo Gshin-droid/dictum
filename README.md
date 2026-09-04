@@ -86,14 +86,14 @@ program it sees for the first time.
 
 The release file has been checked on VirusTotal — seventy engines at once:
 
-**[3 detections out of 69 →](https://www.virustotal.com/gui/file/9fd8bbec99633bbda88d3e04cd66c5469965ea72ae973345e030c90c1731128e/detection)**
+**[3 detections out of 69 →](https://www.virustotal.com/gui/file/0747451c8250c2da61759ea949c23f899ee85d25060002f4cd017e0dc83d72d1/detection)**
 — Bkav, Zillya and Microsoft. Kaspersky, ESET, Avast and Dr.Web consider the
 file clean.
 
 **Release 1.1.3 had two detections and Microsoft was not among them.** There is
 no point hiding that, but it is worth explaining, because the cause is known.
 
-Microsoft's verdict is `Program:Win32/Wacapew.C!ml`. The `!ml` suffix means
+Microsoft's verdict is `Trojan:Win32/Wacatac.B!ml`. The `!ml` suffix means
 "machine learning": not a match against a known virus, but a trained model's
 opinion that the file resembles suspicious ones. The `Wacapew` and `Wacatac`
 families are notorious for firing on almost any program packed with PyInstaller.
@@ -134,12 +134,12 @@ explains why the technique matters in general; it says nothing about this
 program.
 
 The report is tied to the file's contents, not to whoever uploaded it. This is
-the fingerprint of release `v1.2.0` — the same exe ships as a standalone file and
+the fingerprint of release `v1.2.2` — the same exe ships as a standalone file and
 inside both archives. You can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
-# 9FD8BBEC99633BBDA88D3E04CD66C5469965EA72AE973345E030C90C1731128E
+# 0747451C8250C2DA61759EA949C23F899EE85D25060002F4CD017E0DC83D72D1
 ```
 
 If it does not match, the file is not from the release and should not be run.
