@@ -272,8 +272,10 @@ Everything lives in one menu — right-click the icon next to the clock:
 - **Язык программы** ("Interface language") — Russian or Kazakh. Applies at
   once, no restart needed.
 - **Словарь замен** ("Replacement dictionary") — a `Замены.txt` file next to the
-  program: what was heard on the left, what you want on the right. Handy for
-  names and English words the model spells in Cyrillic.
+  program: what was heard on the left, what you want on the right. It ships with
+  about a hundred entries already in it — «гугл» → `Google`, «эксел» → `Excel`.
+  Delete what you don't need, add your own. List length costs nothing: a hundred
+  rules or five thousand take the same time.
 - **Справка** ("Help") — the same as this section, inside the program.
 - **О программе** ("About") — a window with the model, the key and the version.
 
