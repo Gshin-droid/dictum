@@ -334,8 +334,10 @@ Dictating in Russian: take the first model. Need Kazakh: take the second.
    accumulated numbers to the model, which turns them into words and puts in the
    punctuation.
 3. **Pasting.** The finished text goes onto the clipboard, the program returns
-   focus to the right window and presses Ctrl+V for you. Whatever was on the
-   clipboard before is put back a second later.
+   focus to the right window and presses Ctrl+V for you. The dictation stays on
+   the clipboard: if the paste missed the field, you can always paste it by
+   hand. Whatever was on the clipboard before is put back once you have pasted
+   the dictation yourself.
 
 File transcription takes a shorter path, with one extra step in the middle:
 
