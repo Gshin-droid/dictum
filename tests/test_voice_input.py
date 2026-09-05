@@ -919,7 +919,8 @@ def test_soobshchenie_o_podgotovke_ne_perezhivaet_rabotu(monkeypatch):
     rec = _idle_recorder(module)
     rec.asr_model = "gigaam-multilingual-ctc"
     monkeypatch.setitem(sys.modules, "punctuate", types.SimpleNamespace(
-        load=lambda _dir: types.SimpleNamespace(apply=lambda t: t + ".")))
+        missing=lambda _dir: False,
+        load=lambda _dir, _доля=None: types.SimpleNamespace(apply=lambda t: t + ".")))
 
     assert rec._polish("рахмет") == "рахмет."
     assert rec.notice_text() is None, "капсула останется висеть на экране"
@@ -931,10 +932,11 @@ def test_soobshchenie_snimaetsya_i_kogda_podgotovka_upala(monkeypatch):
     rec = _idle_recorder(module)
     rec.asr_model = "gigaam-multilingual-ctc"
 
-    def упало(_dir):
+    def упало(_dir, _доля=None):
         raise RuntimeError("весов нет")
 
-    monkeypatch.setitem(sys.modules, "punctuate", types.SimpleNamespace(load=упало))
+    monkeypatch.setitem(sys.modules, "punctuate",
+                        types.SimpleNamespace(missing=lambda _dir: False, load=упало))
 
     assert rec._polish("рахмет") == "рахмет"
     assert rec.notice_text() is None
@@ -1518,3 +1520,31 @@ def test_svoy_spisok_sertifikatov_ne_perebivaetsya(monkeypatch):
     module.trust_windows_certificates()
 
     assert os.environ["SSL_CERT_FILE"] == "C:/moy/spisok.pem"
+
+
+def test_pri_zakachke_kapsula_govorit_skolko_skachano(monkeypatch):
+    """Две минуты «готовлю знаки препинания…» неотличимы от зависания.
+
+    Веса весят 107 МБ и качаются один раз. Пока идёт закачка, капсула обязана
+    говорить, что это закачка, и показывать долю — иначе человек не знает,
+    ждать ему или убивать программу.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    rec.asr_model = "gigaam-multilingual-ctc"
+    надписи = []
+
+    def качалка(_dir, доля=None):
+        надписи.append(rec.notice_text())
+        доля(0.42)
+        надписи.append(rec.notice_text())
+        return types.SimpleNamespace(apply=lambda t: t + ".")
+
+    monkeypatch.setitem(sys.modules, "punctuate",
+                        types.SimpleNamespace(missing=lambda _dir: True, load=качалка))
+
+    assert rec._polish("рахмет") == "рахмет."
+    assert "качаю" in надписи[0], f"в капсуле: {надписи[0]}"
+    assert "0 %" in надписи[0]
+    assert "42 %" in надписи[1], f"доля не доехала до капсулы: {надписи[1]}"
+    assert rec.notice_text() is None, "капсула останется висеть на экране"

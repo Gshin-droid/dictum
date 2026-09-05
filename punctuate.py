@@ -173,8 +173,18 @@ def hyphens(text: str) -> str:
     return _HYPHEN.sub(lambda m: re.sub(r"\s+", "-", m.group(0)), text)
 
 
-def ensure_weights(models_dir: Path) -> Path:
-    """Папка с весами пунктуатора. Файлов нет — качает их с HuggingFace.
+def missing(models_dir: Path) -> bool:
+    """Весов нет и их придётся качать. Спрашивают до того, как показать надпись:
+    «готовлю знаки препинания» на двухминутной закачке выглядит зависанием."""
+    folder = models_dir / MODEL_DIR
+    return not all((folder / name).exists() for name in (ONNX_NAME, SPE_NAME))
+
+
+def ensure_weights(models_dir: Path, progress=None) -> Path:
+    """Папка с весами пунктуатора. Файлов нет — качает их с выпуска на GitHub.
+
+    `progress` зовётся долей скачанного от нуля до единицы — чтобы человек видел,
+    что идёт работа, а не остановка.
 
     Кладём рядом с программой, а не в скрытый кеш пользователя: переносная
     копия должна работать без сети, и модуль в неё копируется целиком.
@@ -190,7 +200,12 @@ def ensure_weights(models_dir: Path) -> Path:
         # Качаем во временное имя: оборванная закачка не должна выглядеть как
         # готовый файл, иначе при следующем запуске программа возьмёт огрызок.
         временный = folder / (name + ".part")
-        urllib.request.urlretrieve(f"{RELEASE}/{name}", временный)
+        доложить = None
+        if progress is not None:
+            def доложить(кусков, размер_куска, всего, _name=name):
+                if всего > 0:
+                    progress(min(1.0, кусков * размер_куска / всего))
+        urllib.request.urlretrieve(f"{RELEASE}/{name}", временный, доложить)
         временный.replace(folder / name)
     for старый in OLD_FILES:
         if (folder / старый).exists():
@@ -246,6 +261,6 @@ class Punctuator:
         return assemble(pieces[1:-1], pre[1:-1], post[1:-1], cap[1:-1], seg[1:-1])
 
 
-def load(models_dir: Path) -> Punctuator:
-    """Готовый пунктуатор. Весов нет — скачает их."""
-    return Punctuator(ensure_weights(models_dir))
+def load(models_dir: Path, progress=None) -> Punctuator:
+    """Готовый пунктуатор. Весов нет — скачает их, докладывая долю в `progress`."""
+    return Punctuator(ensure_weights(models_dir, progress))

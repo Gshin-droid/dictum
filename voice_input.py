@@ -819,8 +819,17 @@ class Recorder:
             if self._punctuator is None:
                 import punctuate
 
-                with self._working(t("notice.preparing_punct")):
-                    self._punctuator = punctuate.load(APP_DIR / "models")
+                # Закачка идёт две минуты, и всё это время капсула показывала
+                # «готовлю знаки препинания…». Со стороны это ровно то же, что
+                # зависание: человек не знает, ждать ему или убивать программу.
+                папка = APP_DIR / "models"
+                качаем = punctuate.missing(папка)
+                доля = (lambda часть: self._notify(
+                    t("notice.downloading_punct", percent=int(часть * 100)), 3600)
+                ) if качаем else None
+                надпись = "notice.downloading_punct" if качаем else "notice.preparing_punct"
+                with self._working(t(надпись, percent=0)):
+                    self._punctuator = punctuate.load(папка, доля)
             return self._punctuator.apply(text)
         except Exception as exc:
             print(f"⚠️ Знаки препинания не поставились: {exc}")
