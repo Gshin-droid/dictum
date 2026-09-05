@@ -53,7 +53,7 @@ the program downloads the recognition model, 216 MB. A bar saying
 the bottom of the screen. Wait. The model goes into a `models` folder next to the
 exe and never downloads again: subsequent launches take seconds.
 
-### 2. A portable folder (222 MB archive)
+### 2. A portable folder (223 MB archive)
 
 Download `dictum-portable.zip`, unpack it, run `dictum.exe` from inside. The
 model is already there — **nothing to download, no internet needed at all**.
@@ -63,11 +63,19 @@ drive.
 Do **not** unpack it into Program Files: the program needs write access next to
 itself. Desktop, Documents or a flash drive will do.
 
-### 3. A portable folder with Kazakh (599 MB archive)
+### 3. A portable folder with Kazakh (460 MB archive, pre-release)
 
-Download `dictum-portable-kazahskiy.zip`. The same as the second one plus the
-multilingual model and punctuation for it: Kazakh, Kyrgyz, Uzbek. The
-multilingual model is preselected, so you can start dictating right away.
+Download `dictum-portable-kazahskiy.zip` from the release marked "Pre-release".
+The same as the second one plus the multilingual model and punctuation for it:
+Kazakh, Kyrgyz, Uzbek. The multilingual model is preselected, so you can start
+dictating right away.
+
+**Why pre-release.** The author uses the Russian side daily, but **nobody has
+listened to Kazakh dictation yet** — neither the author nor a native speaker.
+Machine measurements exist (punctuation on the FLEURS set), but they speak about
+texts, not about live speech. The Kazakh interface strings are also waiting for a
+native speaker to read them. If you speak Kazakh and can tell what comes out
+wrong, that is exactly the help this needs.
 
 The Russian model is in there as well — switching to it from the tray menu
 downloads nothing.
@@ -86,10 +94,12 @@ program it sees for the first time.
 
 The release file has been checked on VirusTotal — seventy engines at once:
 
-**[3 detections out of 69 →](https://www.virustotal.com/gui/file/0747451c8250c2da61759ea949c23f899ee85d25060002f4cd017e0dc83d72d1/detection)**
-— Bkav, Zillya and Microsoft. Kaspersky, ESET, Avast and Dr.Web consider the
+**[2 detections out of 69 →](https://www.virustotal.com/gui/file/4b0c3e15742c2f63c607dac6a5d59c63c804b453b3a724f5fa7bdcad4e840555/detection)**
+— Bkav and Microsoft. Kaspersky, ESET, Avast and Dr.Web consider the
 file clean.
 
+Release 1.2.2 had three: Zillya used to be on the list and went quiet by itself
+in 1.3.0, once the build changed and the punctuation module halved in size.
 **Release 1.1.3 had two detections and Microsoft was not among them.** There is
 no point hiding that, but it is worth explaining, because the cause is known.
 
@@ -134,12 +144,12 @@ explains why the technique matters in general; it says nothing about this
 program.
 
 The report is tied to the file's contents, not to whoever uploaded it. This is
-the fingerprint of release `v1.2.2` — the same exe ships as a standalone file and
+the fingerprint of release `v1.3.0` — the same exe ships as a standalone file and
 inside both archives. You can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
-# 0747451C8250C2DA61759EA949C23F899EE85D25060002F4CD017E0DC83D72D1
+# 4B0C3E15742C2F63C607DAC6A5D59C63C804B453B3A724F5FA7BDCAD4E840555
 ```
 
 If it does not match, the file is not from the release and should not be run.

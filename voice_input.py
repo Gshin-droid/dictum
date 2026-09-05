@@ -138,7 +138,7 @@ APP_NAME = "Dictum"
 # Три числа: ломающее изменение . новые возможности . исправления.
 # Единственное место, где версия записана: отсюда её берут «О программе», журнал
 # и свойства exe, которые показывает проводник Windows.
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.3.0"
 APP_TAGLINE = f"{APP_NAME} — голосовая диктовка"
 APP_AUTHOR = "Gshin-droid"
 APP_URL = "github.com/Gshin-droid/dictum"

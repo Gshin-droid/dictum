@@ -64,7 +64,7 @@ def test_big_file_goes_through_special_url(tmp_path, monkeypatch):
     big.write_bytes(b"x" * (module.DIRECT_UPLOAD_LIMIT + 1))
     asked = []
 
-    def fake_request(url, key, data=None, content_type=None):
+    def fake_request(url, key, data=None, content_type=None, timeout=None):
         asked.append(url)
         if url.endswith("/files/upload_url"):
             return {"data": "https://upload.example/большой"}
@@ -82,10 +82,20 @@ def test_small_file_goes_straight(tmp_path, monkeypatch):
     small.write_bytes(b"x" * 100)
     asked = []
 
-    monkeypatch.setattr(module, "request", lambda url, key, data=None, content_type=None: (
-        asked.append(url), {"data": {"id": "номер"}})[1])
+    сроки = []
+
+    def поддельный(url, key, data=None, content_type=None, timeout=None):
+        asked.append(url)
+        сроки.append(timeout)
+        return {"data": {"id": "номер"}}
+
+    monkeypatch.setattr(module, "request", поддельный)
     module.upload(small, "ключ")
     assert asked == [f"{module.API}/files"]
+    # Отправка идёт с длинным сроком: 64 МБ вверх по домашнему каналу идут
+    # четверть часа, и прежние 600 секунд обрывали загрузку дважды подряд.
+    assert сроки == [module.SEND_TIMEOUT], f"сроки: {сроки}"
+    assert module.SEND_TIMEOUT >= 1800, "меньше получаса на отправку — мало"
 
 
 def test_multipart_carries_the_file_whole():

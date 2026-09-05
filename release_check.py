@@ -38,6 +38,10 @@ from pathlib import Path
 API = "https://www.virustotal.com/api/v3"
 DIRECT_UPLOAD_LIMIT = 32 * 1024 * 1024  # больше — только через отдельный адрес
 POLL_SECONDS = 20  # бесплатный тариф: 4 запроса в минуту, чаще спрашивать нельзя
+ASK_TIMEOUT = 120  # на вопрос об отпечатке хватает с запасом
+# Отправка файла — другое дело: 64 МБ вверх по домашнему каналу идут четверть
+# часа, и прежние 600 секунд обрывали загрузку дважды подряд на полпути.
+SEND_TIMEOUT = 3600
 POLL_ATTEMPTS = 30  # то есть ждём результат до десяти минут
 
 ROOT = Path(__file__).resolve().parent
@@ -144,14 +148,15 @@ def multipart(field: str, filename: str, payload: bytes) -> tuple[bytes, str]:
     return body, f"multipart/form-data; boundary={boundary}"
 
 
-def request(url: str, key: str, data: bytes | None = None, content_type: str | None = None):
+def request(url: str, key: str, data: bytes | None = None, content_type: str | None = None,
+            timeout: int = ASK_TIMEOUT):
     """Запрос к VirusTotal. Возвращает разобранный ответ или None, если файла у них нет."""
     headers = {"x-apikey": key, "accept": "application/json"}
     if content_type:
         headers["content-type"] = content_type
     try:
         with urllib.request.urlopen(
-            urllib.request.Request(url, data=data, headers=headers), timeout=600
+            urllib.request.Request(url, data=data, headers=headers), timeout=timeout
         ) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as exc:
@@ -199,8 +204,9 @@ def upload(path: Path, key: str) -> str:
     else:
         url = f"{API}/files"
     body, content_type = multipart("file", path.name, path.read_bytes())
-    print("Загружаю, это может занять несколько минут...")
-    return request(url, key, data=body, content_type=content_type)["data"]["id"]
+    print(f"Загружаю {size / 1e6:.0f} МБ. На домашнем канале это четверть часа — не пугайся тишине.")
+    ответ = request(url, key, data=body, content_type=content_type, timeout=SEND_TIMEOUT)
+    return ответ["data"]["id"]
 
 
 def wait_for(analysis_id: str, key: str) -> tuple[dict, dict]:
