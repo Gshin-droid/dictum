@@ -10,7 +10,11 @@ docs/plan-*.md
 Справка.txt
 .venv/
 logs/
-data/
+data/*
+# ...но код подготовки и замера — это код, а не данные, и он нужен читателю
+!data/punct-training/
+data/punct-training/*
+!data/punct-training/*.py
 .env
 __pycache__/
 *.pyc
