@@ -186,7 +186,7 @@ def ensure_weights(models_dir: Path) -> Path:
     for name in (ONNX_NAME, SPE_NAME):
         if (folder / name).exists():
             continue
-        print(f"Скачиваю {name} — 107 МБ, один раз")
+        print(f"Скачиваю {name} — знаки препинания, 107 МБ на двоих, один раз")
         # Качаем во временное имя: оборванная закачка не должна выглядеть как
         # готовый файл, иначе при следующем запуске программа возьмёт огрызок.
         временный = folder / (name + ".part")

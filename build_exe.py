@@ -177,10 +177,16 @@ def check_origins(toc: Path) -> None:
     parts = ast.literal_eval(toc.read_text(encoding="utf-8"))
     entries = next(part for part in parts
                    if isinstance(part, list) and part and isinstance(part[0], tuple))
-    roots = [os.path.normcase(str(root)) + os.sep for root in ALLOWED_SOURCES]
+    # Пути приводим к настоящему месту на диске, а не сличаем строками.
+    # C:\my_projects — соединение (junction) на F:\my_projects: папка одна, а
+    # написана по-разному, и сторож объявлял чужими собственные файлы сборки.
+    def настоящий(путь) -> str:
+        return os.path.normcase(str(Path(путь).resolve()))
+
+    roots = [настоящий(root) + os.sep for root in ALLOWED_SOURCES]
     strangers = sorted({
         source for _, source, _ in entries
-        if source and not any(os.path.normcase(source).startswith(root) for root in roots)
+        if source and not any(настоящий(source).startswith(root) for root in roots)
     })
     if strangers:
         raise SystemExit(

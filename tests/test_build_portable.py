@@ -315,3 +315,43 @@ def test_svoi_moduli_perechisleny_dlya_sborshchika():
 
     забыты = sorted((нужны & свои) - перечислено - снаружи)
     assert not забыты, f"свои модули не названы сборщику: {забыты}"
+
+
+def _toc(путь: Path, источник: str) -> Path:
+    """Список того, что вошло в сборку, — в том виде, в каком его пишет PyInstaller."""
+    путь.write_text(repr((["ANALYSIS"], [("modul.py", источник, "PYMODULE")], [], [])),
+                    encoding="utf-8")
+    return путь
+
+
+def test_storozh_ne_putaet_svoi_fayly_s_chuzhimi(monkeypatch, tmp_path):
+    """Одна и та же папка, написанная по-разному, — не «посторонний пакет».
+
+    На этой машине C:/my_projects — соединение (junction) на F:/my_projects:
+    папка физически одна. Сторож сличал пути строками, объявлял чужими
+    собственные файлы сборки, и exe не собирался вовсе, хотя всё было на месте.
+    Здесь соединение делается по-настоящему: иначе проверка ничего не проверяет.
+    """
+    import subprocess
+
+    module = _load(monkeypatch, tmp_path)
+    настоящая = tmp_path / "paket"
+    (настоящая / "vnutri").mkdir(parents=True)
+    (настоящая / "vnutri" / "modul.py").write_text("", encoding="utf-8")
+    ссылка = tmp_path / "ta-zhe-papka"
+    сделано = subprocess.run(["cmd", "/c", "mklink", "/J", str(ссылка), str(настоящая)],
+                             capture_output=True)
+    if сделано.returncode:
+        pytest.skip(f"соединение не создалось: {сделано.stderr.decode('cp866', 'replace')}")
+    monkeypatch.setattr(module, "ALLOWED_SOURCES", (настоящая,))
+
+    module.check_origins(_toc(tmp_path / "svoi.toc", str(ссылка / "vnutri" / "modul.py")))
+
+
+def test_storozh_vsyo_zhe_lovit_postoronnie_fayly(monkeypatch, tmp_path):
+    """Сторожа чинили — проверяем, что он не перестал сторожить."""
+    module = _load(monkeypatch, tmp_path)
+    чужой = str(Path(tmp_path) / "chuzhoy-paket" / "modul.py")
+
+    with pytest.raises(SystemExit, match="посторонних мест"):
+        module.check_origins(_toc(tmp_path / "chuzhoy.toc", чужой))
