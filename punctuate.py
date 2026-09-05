@@ -18,15 +18,27 @@ import unicodedata
 from pathlib import Path
 
 MODEL_DIR = "punct-multilang"  # имя папки в models/
-REPO = "1-800-BAD-CODE/punct_cap_seg_47_language"
-ONNX_NAME = "punct_cap_seg_47lang.onnx"
-SPE_NAME = "spe_unigram_64k_lowercase_47lang.model"
+ONNX_NAME = "punct-xlmr-int8.onnx"
+SPE_NAME = "punct-xlmr.model"
+# Модель 1-800-BAD-CODE/xlm-roberta_punctuation_fullstop_truecase (Apache-2.0),
+# у неё обрезан словарь и сжаты веса: 1061 МБ → 107 МБ. Как именно и с какими
+# числами — data/punct-training/obrezka.py и docs/kazahskiy-modul.md. Готовый
+# файл лежит у выпуска на GitHub: HuggingFace отдаёт только несжатый.
+RELEASE = "https://github.com/Gshin-droid/dictum/releases/download/punct-xlmr-1"
+# Прежние веса (punct_cap_seg_47lang, 233 МБ). Названы поимённо, чтобы удалить
+# их у тех, кто уже качал: новые лежат в той же папке под другими именами, и без
+# уборки на диске остаётся четверть гигабайта мёртвого груза.
+OLD_FILES = ("punct_cap_seg_47lang.onnx", "spe_unigram_64k_lowercase_47lang.model")
 
 # Порядок важен: модель отдаёт номер в этом списке. Взят из config.yaml модели,
 # сюда переписан целиком, чтобы не тянуть omegaconf ради тридцати строк.
-POST_LABELS = ["", ".", ",", "?", "？", "，", "。", "、", "・", "।", "؟", "،", ";", "።", "፣", "፧"]
+# Номер 1 — метка «сокращение» (<ACRONYM>): знака препинания за ней нет, регистр
+# модель сообщает отдельным выходом, поэтому у нас она пустая. Но место занимать
+# обязана: без неё все знаки съедут на единицу, и текст поедет молча.
+POST_LABELS = ["", "", ".", ",", "?", "？", "，", "。", "、", "・", "।", "؟", "،",
+               ";", "።", "፣", "፧"]
 PRE_LABELS = ["", "¿"]  # перевёрнутый вопрос нужен испанскому, нам — нет
-MAX_SUBWORDS = 128  # окно модели; казахское слово дробится в среднем на 2,6 куска
+MAX_SUBWORDS = 256  # окно модели; казахское слово дробится в среднем на 2,6 куска
 LEADING = ".,?;:!"  # с этого текст начинаться не может
 
 
@@ -167,14 +179,23 @@ def ensure_weights(models_dir: Path) -> Path:
     Кладём рядом с программой, а не в скрытый кеш пользователя: переносная
     копия должна работать без сети, и модуль в неё копируется целиком.
     """
-    from huggingface_hub import hf_hub_download
+    import urllib.request
 
     folder = models_dir / MODEL_DIR
     folder.mkdir(parents=True, exist_ok=True)
     for name in (ONNX_NAME, SPE_NAME):
-        if not (folder / name).exists():
-            print(f"Скачиваю {name} — 233 МБ, один раз")
-            hf_hub_download(repo_id=REPO, filename=name, local_dir=str(folder))
+        if (folder / name).exists():
+            continue
+        print(f"Скачиваю {name} — 107 МБ, один раз")
+        # Качаем во временное имя: оборванная закачка не должна выглядеть как
+        # готовый файл, иначе при следующем запуске программа возьмёт огрызок.
+        временный = folder / (name + ".part")
+        urllib.request.urlretrieve(f"{RELEASE}/{name}", временный)
+        временный.replace(folder / name)
+    for старый in OLD_FILES:
+        if (folder / старый).exists():
+            print(f"Удаляю прежние веса: {старый}")
+            (folder / старый).unlink()
     return folder
 
 

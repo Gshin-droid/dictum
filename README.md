@@ -304,13 +304,14 @@ The Russian one is trained to emit finished text: commas, full stops and capital
 letters included. The multilingual one emits a stream of lower-case letters — its
 vocabulary holds 70 characters, and neither a full stop nor a comma is among them.
 
-So a **separate module** places the marks for it: 233 MB, runs on the CPU in
-fractions of a second, never changes a word. It handles Russian, Kazakh and
+So a **separate module** places the marks for it: 107 MB, runs on the CPU in
+hundredths of a second, never changes a word. It handles Russian, Kazakh and
 Kyrgyz; it does not know Uzbek, so Uzbek speech stays unpunctuated.
 
-How well it does that in Kazakh — measured on 206 sentences from the FLEURS set:
-it finds sentence boundaries in 95 cases out of 100, commas in roughly two
-thirds, and gets the case right on 97 % of words. The full measurement is in
+How well it does that in Kazakh — measured on 218 sentences from the FLEURS set:
+it finds sentence boundaries in 92 cases out of 100, commas in 85, and gets the
+case right on 97 % of words. On Russian it is markedly better than the previous
+233 MB module: 91 % against 84 % (F1). The full measurement is in
 [docs/kazahskiy-modul.md](docs/kazahskiy-modul.md) (Russian only).
 
 The module is downloaded from the menu, or dropped as a folder into `models/` —
