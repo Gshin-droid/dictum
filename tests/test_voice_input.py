@@ -1,6 +1,7 @@
 """Голосовой ввод: хоткей, отмена записи, громкость для волны, метки времени в логе."""
 
 import importlib.util
+import os
 import sys
 import threading
 import time
@@ -1487,3 +1488,33 @@ def test_otkaz_mikrofona_ne_ronyaet_programmu(monkeypatch):
     assert rec.recording is False, "запись не могла начаться"
     assert сказано and "икрофон" in сказано[0], f"на экране: {сказано}"
     assert not rec.lock.locked(), "замок микрофона не отпущен"
+
+
+def test_sertifikaty_windows_popadayut_v_spisok(monkeypatch, tmp_path):
+    """Антивирус с проверкой соединений подписывает трафик своим сертификатом.
+
+    Он лежит в хранилище Windows, а качалка моделей смотрит только в свой
+    список certifi — и падает «не удалось скачать» на исправной сети.
+    """
+    import certifi
+
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+
+    module.trust_windows_certificates()
+
+    список = Path(os.environ["SSL_CERT_FILE"]).read_bytes()
+    свои = Path(certifi.where()).read_bytes()
+    assert список.startswith(свои), "список certifi должен остаться целиком"
+    assert len(список) > len(свои), "сертификаты Windows не добавились"
+
+
+def test_svoy_spisok_sertifikatov_ne_perebivaetsya(monkeypatch):
+    """Назначил список сам — значит, знал зачем: рабочий прокси, свой центр."""
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setenv("SSL_CERT_FILE", "C:/moy/spisok.pem")
+
+    module.trust_windows_certificates()
+
+    assert os.environ["SSL_CERT_FILE"] == "C:/moy/spisok.pem"

@@ -185,7 +185,14 @@ class Punctuator:
         import onnxruntime as ort
         import sentencepiece as spm
 
-        self._sp = spm.SentencePieceProcessor(str(folder / SPE_NAME))
+        # Файл читаем сами и отдаём байтами. Путь строкой отдавать нельзя:
+        # sentencepiece написан на C++ и открывает файл через узкий интерфейс
+        # Windows, где русские буквы в пути превращаются в вопросительные знаки.
+        # Программу распаковывают в «C:\Users\Гена\Рабочий стол» — там она и
+        # падала с «No such file or directory» на файле, лежащем на месте.
+        # onnxruntime рядом такой путь открывает нормально, дело только в этом.
+        self._sp = spm.SentencePieceProcessor(
+            model_proto=(folder / SPE_NAME).read_bytes())
         self._session = ort.InferenceSession(str(folder / ONNX_NAME))
         self._input = self._session.get_inputs()[0].name
 

@@ -182,3 +182,18 @@ def test_uzhe_skleennoe_ne_trogaem():
 
 def test_znaki_ryadom_ne_meshayut():
     assert pn.hyphens("если что то, не то — скажи") == "если что-то, не то — скажи"
+
+
+@skip_bez_vesov
+def test_kirillica_v_puti_ne_lomaet_zagruzku(tmp_path):
+    """Переносную копию распаковывают в «Рабочий стол» — путь с русскими буквами.
+
+    sentencepiece на таком пути файл не находил, хотя файл лежал на месте:
+    отсюда падение у всех, кроме разработчика с латинским путём.
+    """
+    папка = tmp_path / "Рабочий стол" / "models" / pn.MODEL_DIR
+    папка.mkdir(parents=True)
+    for имя in (pn.ONNX_NAME, pn.SPE_NAME):
+        (папка / имя).write_bytes((ROOT / "models" / pn.MODEL_DIR / имя).read_bytes())
+    p = pn.load(tmp_path / "Рабочий стол" / "models")
+    assert p.apply("рахмет сізге") == "Рахмет сізге."

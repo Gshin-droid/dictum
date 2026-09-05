@@ -322,6 +322,38 @@ def describe_environment() -> str:
     return "\n".join(lines)
 
 
+def trust_windows_certificates() -> None:
+    """Пускает качалку моделей в хранилище сертификатов Windows.
+
+    Антивирусы с проверкой защищённых соединений — Avast, Kaspersky, ESET, а
+    ещё рабочие прокси — вскрывают трафик и подписывают его своим сертификатом.
+    Windows ему доверяет, браузер работает, а качалка моделей падает: она
+    смотрит только в свой список `certifi` и системное хранилище не спрашивает.
+    Человек при этом видит «не удалось скачать модель» на исправной сети.
+
+    Доверия не убавляется и не прибавляется сверх того, что уже есть в системе:
+    к списку `certifi` добавляются корневые сертификаты самой Windows — те, по
+    которым тут работает всякая другая программа.
+    """
+    import ssl
+    import tempfile
+
+    if os.environ.get("SSL_CERT_FILE"):
+        return  # человек или окружение уже назначили свой список — не спорим
+    try:
+        import certifi
+
+        parts = [Path(certifi.where()).read_bytes()]
+        parts += [ssl.DER_cert_to_PEM_cert(cert).encode()
+                  for cert, _, _ in ssl.enum_certificates("ROOT")]
+        bundle = Path(tempfile.gettempdir()) / "dictum-ca.pem"
+        bundle.write_bytes(b"".join(parts))
+        os.environ["SSL_CERT_FILE"] = str(bundle)
+    except Exception as exc:  # список не собрался — качаем как раньше
+        print(f"Сертификаты Windows не подхватились ({exc}) — скачивание может "
+              f"не пройти через антивирус с проверкой соединений")
+
+
 def bind_hotkey(hotkey: str, callback) -> None:
     """Вешает хоткей так, чтобы он не умирал насовсем.
 
@@ -1544,6 +1576,8 @@ def main() -> None:
     print("=" * 60)
     print(describe_environment())
     print("=" * 60)
+
+    trust_windows_certificates()
 
     load_dotenv(APP_DIR / ".env")
     asr_model = os.getenv("ASR_MODEL", DEFAULT_ASR_MODEL)
