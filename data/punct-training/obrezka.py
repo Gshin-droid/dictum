@@ -45,11 +45,42 @@ def достижим(кусочек: str) -> bool:
     return set(тело) <= БУКВЫ
 
 
-def нужные_номера(sp) -> list[int]:
-    """Номера кусочков, которые останутся. Порядок сохраняем — по нему новые номера."""
+def нужные_номера(sp, корпус=None) -> list[int]:
+    """Номера кусочков, которые останутся. Порядок сохраняем — по нему новые номера.
+
+    Без корпуса правило строгое: остаётся всё, до чего может дотянуться алфавит
+    распознавания. С корпусом — жаднее: остаётся только то, чем разбивщик
+    воспользовался на наших фразах, плюс отдельные буквы, чтобы незнакомое слово
+    разложилось по буквам, а не превратилось в <unk>.
+    """
     нужны = set(range(СЛУЖЕБНЫЕ))
-    нужны.update(i for i in range(sp.GetPieceSize()) if достижим(sp.IdToPiece(i)))
+    if корпус is None:
+        нужны.update(i for i in range(sp.GetPieceSize()) if достижим(sp.IdToPiece(i)))
+        return sorted(нужны)
+    for i in range(sp.GetPieceSize()):
+        кусочек = sp.IdToPiece(i).replace(НАЧАЛО_СЛОВА, "")
+        if len(кусочек) <= 1 and достижим(sp.IdToPiece(i)):
+            нужны.add(i)
+    for фраза in корпус:
+        нужны.update(sp.EncodeAsIds(фраза))
     return sorted(нужны)
+
+
+def фразы_корпуса():
+    """Наш обучающий корпус: те же три языка и тот же алфавит, что у программы.
+
+    Разбивщику отдаём так, как придёт из распознавания: строчными и без знаков.
+    """
+    import json
+
+    for файл in ("train.jsonl", "dev.jsonl"):
+        путь = ЗДЕСЬ / "gotovo" / файл
+        if not путь.exists():
+            raise SystemExit(f"нет {путь} — сначала python podgotovka.py")
+        with путь.open(encoding="utf-8") as f:
+            for строка in f:
+                текст = json.loads(строка)["text"].lower()
+                yield "".join(з for з in текст if з in БУКВЫ or з == " ")
 
 
 def обрезать_словарь(протокол: bytes, номера: list[int]) -> bytes:
@@ -106,6 +137,14 @@ def selftest() -> None:
     # почти любой фразы, и без него казахский терял четыре пункта.
     assert достижим(НАЧАЛО_СЛОВА), "голый значок пробела выбрасывать нельзя"
 
+    # Жадная обрезка: из встреченного «мама», из букв — только одиночные.
+    class СКодировкой(ПоддельныйSP):
+        def EncodeAsIds(self, текст): return [4]
+
+    жадные = нужные_номера(СКодировкой(), ["мама"])
+    assert 4 in жадные and 5 not in жадные, жадные   # «мыла» не встретилось
+    assert 11 in жадные, "значок начала слова нужен и здесь"
+
     таблица = np.arange(12 * 2, dtype=np.float32).reshape(12, 2)
     обрезанная = таблица[номера]
     assert (обрезанная[4] == таблица[4]).all(), "строка уехала от своего кусочка"
@@ -116,6 +155,8 @@ def selftest() -> None:
 def main() -> None:
     разбор = argparse.ArgumentParser(description=__doc__)
     разбор.add_argument("--папка", default=r"F:\opyt\xlmr-punct", help="где лежит модель")
+    разбор.add_argument("--по-корпусу", action="store_true",
+                        help="жадная обрезка: только кусочки, встреченные в наших фразах")
     разбор.add_argument("--selftest", action="store_true")
     д = разбор.parse_args()
     if д.selftest:
@@ -125,14 +166,15 @@ def main() -> None:
     import sentencepiece as spm
 
     папка = Path(д.папка)
+    хвост = "-korpus" if getattr(д, "по_корпусу") else ""
     протокол = (папка / "sp.model").read_bytes()
     sp = spm.SentencePieceProcessor(model_proto=протокол)
-    номера = нужные_номера(sp)
+    номера = нужные_номера(sp, фразы_корпуса() if getattr(д, "по_корпусу") else None)
     print(f"кусочков: {sp.GetPieceSize()} → {len(номера)} ({len(номера) / sp.GetPieceSize():.1%})")
 
-    (папка / "sp-obrezan.model").write_bytes(обрезать_словарь(протокол, номера))
-    обрезать_модель(папка / "model.onnx", номера, папка / "model-obrezan.onnx")
-    for имя in ("model.onnx", "model-obrezan.onnx"):
+    (папка / f"sp-obrezan{хвост}.model").write_bytes(обрезать_словарь(протокол, номера))
+    обрезать_модель(папка / "model.onnx", номера, папка / f"model-obrezan{хвост}.onnx")
+    for имя in ("model.onnx", f"model-obrezan{хвост}.onnx"):
         print(f"{имя:<22}{(папка / имя).stat().st_size / 1024 / 1024:.0f} МБ")
 
 
