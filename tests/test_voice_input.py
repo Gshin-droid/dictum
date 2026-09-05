@@ -1413,13 +1413,17 @@ def test_mertvyy_mikrofon_nazyvaetsya_svoim_imenem(monkeypatch):
 
 
 def test_tihaya_rech_ne_obvinyaet_mikrofon(monkeypatch):
-    """Звук был, а слов не разобрали — это по-прежнему «речь не распознана»."""
+    """Звук был, а слов не разобрали — это по-прежнему «речь не распознана».
+
+    Уровень взят выше порога тишины: сам порог поднят до 0,01 по замеру шума
+    мёртвого входа, а тихая, но настоящая речь даёт хотя бы 0,05.
+    """
     module = _load(monkeypatch, _fake()[0])
     rec = _idle_recorder(module)
     rec._notify = lambda *a, **kw: None
     rec._recognize = lambda audio: ""
     rec._save_sample = lambda *a, **kw: None
-    шёпот = np.full(module.SAMPLE_RATE, 0.01, dtype=np.float32)
+    шёпот = np.full(module.SAMPLE_RATE, 0.05, dtype=np.float32)
 
     rec._transcribe_and_type(шёпот)
 
@@ -1548,3 +1552,24 @@ def test_pri_zakachke_kapsula_govorit_skolko_skachano(monkeypatch):
     assert "0 %" in надписи[0]
     assert "42 %" in надписи[1], f"доля не доехала до капсулы: {надписи[1]}"
     assert rec.notice_text() is None, "капсула останется висеть на экране"
+
+
+def test_mertvyy_mikrofon_ne_spisyvaetsya_na_dikciyu(monkeypatch):
+    """Шум мёртвого входа — не речь, и человеку надо сказать про микрофон.
+
+    Порог стоял у самого нуля, а отключённый вход Realtek отдаёт собственный шум
+    усилителя: пики 0,0014–0,0038 при шести заходах. Программа считала это
+    звуком и отвечала «речь не распознана» — то есть отправляла чинить дикцию
+    вместо микрофона.
+    """
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    сказано = []
+    rec._notify = lambda text, *a, **kw: сказано.append(text)
+    rec._transcribe = lambda audio: ""          # распознавание ничего не достало
+    шум = (np.random.default_rng(1).random(module.SAMPLE_RATE * 2) - 0.5) * 0.007
+
+    rec._transcribe_and_type(шум.astype("float32"))
+
+    assert rec.last_text == "(микрофон молчит)", f"вышло: {rec.last_text}"
+    assert сказано and "икрофон" in сказано[0], f"на экране: {сказано}"
