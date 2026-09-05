@@ -1415,15 +1415,15 @@ def test_mertvyy_mikrofon_nazyvaetsya_svoim_imenem(monkeypatch):
 def test_tihaya_rech_ne_obvinyaet_mikrofon(monkeypatch):
     """Звук был, а слов не разобрали — это по-прежнему «речь не распознана».
 
-    Уровень взят выше порога тишины: сам порог поднят до 0,01 по замеру шума
-    мёртвого входа, а тихая, но настоящая речь даёт хотя бы 0,05.
+    Уровень взят выше порога тишины: порог считается по средней громкости и
+    стоит на 0,002, а тишина живой комнаты — уже 0,0062.
     """
     module = _load(monkeypatch, _fake()[0])
     rec = _idle_recorder(module)
     rec._notify = lambda *a, **kw: None
     rec._recognize = lambda audio: ""
     rec._save_sample = lambda *a, **kw: None
-    шёпот = np.full(module.SAMPLE_RATE, 0.05, dtype=np.float32)
+    шёпот = np.full(module.SAMPLE_RATE, 0.01, dtype=np.float32)  # тише комнаты не бывает
 
     rec._transcribe_and_type(шёпот)
 
@@ -1558,16 +1558,16 @@ def test_mertvyy_mikrofon_ne_spisyvaetsya_na_dikciyu(monkeypatch):
     """Шум мёртвого входа — не речь, и человеку надо сказать про микрофон.
 
     Порог стоял у самого нуля, а отключённый вход Realtek отдаёт собственный шум
-    усилителя: пики 0,0014–0,0038 при шести заходах. Программа считала это
-    звуком и отвечала «речь не распознана» — то есть отправляла чинить дикцию
-    вместо микрофона.
+    усилителя. Программа считала это звуком и отвечала «речь не распознана» — то
+    есть отправляла чинить дикцию вместо микрофона. Уровень здесь взят с
+    настоящей записи мёртвого входа: СКО 0,0002.
     """
     module = _load(monkeypatch, _fake()[0])
     rec = _idle_recorder(module)
     сказано = []
     rec._notify = lambda text, *a, **kw: сказано.append(text)
     rec._transcribe = lambda audio: ""          # распознавание ничего не достало
-    шум = (np.random.default_rng(1).random(module.SAMPLE_RATE * 2) - 0.5) * 0.007
+    шум = np.random.default_rng(1).normal(0, 0.0002, module.SAMPLE_RATE * 2)
 
     rec._transcribe_and_type(шум.astype("float32"))
 
