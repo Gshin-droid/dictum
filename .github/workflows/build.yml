@@ -1,0 +1,34 @@
+# Сборка exe на чужой чистой машине. Нужна не сама по себе: SignPath подписывает
+# только то, что собрано в публичном CI и чей журнал сборки может открыть любой.
+# Побочно проверяет, что requirements.txt полон, а сборка не зависит от того,
+# что ещё установлено на машине автора.
+#
+# Переносная копия здесь НЕ собирается: ей нужны 216 МБ весов, которые
+# скачиваются при первом запуске программы. Архив по-прежнему пакуется руками,
+# вокруг exe, скачанного отсюда.
+name: Build
+
+on:
+  push:
+    tags: ["v*"]        # выпуск: поставил тег версии — собралось
+  workflow_dispatch:    # и кнопка «Run workflow» на вкладке Actions
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # Та же команда, что запускается руками. Отдельной «сборки для CI» нет
+      # намеренно: два разных exe породили бы вечный вопрос, какой настоящий.
+      - run: python build_exe.py --only-exe
+        env:
+          PYTHONUTF8: "1"   # сборка печатает по-русски, консоль runner'а — cp1252
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dictum-exe
+          path: dist/dictum.exe
