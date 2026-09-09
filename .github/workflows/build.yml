@@ -16,6 +16,8 @@ on:
 jobs:
   exe:
     runs-on: windows-latest
+    permissions:
+      contents: write   # нужно, чтобы завести черновик выпуска
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,3 +34,14 @@ jobs:
         with:
           name: dictum-exe
           path: dist/dictum.exe
+
+      # Выпуск заводится черновиком, а не публикуется: выложенный файл, который
+      # уже кто-то скачал, назад не заберёшь. Описание, переносную копию и
+      # проверку на VirusTotal доделываю руками, потом жму «Publish».
+      # Берём gh — он предустановлен на runner'е; стороннее действие в CI не
+      # заводим, чтобы не исполнять чужой код ради одной команды.
+      - name: Черновик выпуска
+        if: startsWith(github.ref, 'refs/tags/')
+        run: gh release create $env:GITHUB_REF_NAME --draft --title $env:GITHUB_REF_NAME --notes "Черновик. Собран в CI, отпечаток и описание дописываются руками." dist/dictum.exe
+        env:
+          GH_TOKEN: ${{ github.token }}
