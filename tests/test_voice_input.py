@@ -435,28 +435,51 @@ def test_menu_is_rebuilt_after_settings_change(monkeypatch, tmp_path):
     hotkey = types.SimpleNamespace(key="f8")
 
     icon = module.start_tray(rec, threading.Event(), hotkey)
-    item = _menu_item(icon, "Сохранять записи")
+    # «Сохранять записи» переехало в окно настроек. Берём любое оставшееся
+    # действие меню: пересобирается меню после каждого, а не после конкретного.
+    item = _menu_item(icon, "Скопировать последнюю")
     item.action(icon, item)
     for _ in range(100):  # работа уходит в поток, ждём его недолго
         if icon.refreshes:
             break
         time.sleep(0.01)
 
-    assert rec.save_samples is False
     assert icon.refreshes == 1
 
 
-def test_hotkey_label_follows_the_key(monkeypatch):
-    """Подпись пункта считается на лету — иначе после смены клавиши в ней старая."""
+def test_snimok_nastroek_chitaetsya_zanovo(monkeypatch):
+    """Окно настроек берёт значения снимком на каждый опрос, а не запоминает.
+
+    Клавишу меняет отдельное окно перехвата, модель — долгая закачка, язык —
+    сам же список в окне. Запомненное значение врало бы до переоткрытия.
+    """
     module = _load(monkeypatch, _fake()[0])
-    _fake_pystray(monkeypatch)
     rec = _idle_recorder(module)
     hotkey = types.SimpleNamespace(key="f8")
 
-    icon = module.start_tray(rec, threading.Event(), hotkey)
-    hotkey.key = "f7"
+    было = module.settings_snapshot(rec, hotkey)
+    assert было["клавиша"] == "F8"
 
-    assert _menu_item(icon, "Горячая клавиша").text(None) == "Горячая клавиша: F7"
+    hotkey.key = "f7"
+    rec.save_samples = not было["образцы"]
+
+    стало = module.settings_snapshot(rec, hotkey)
+    assert стало["клавиша"] == "F7"
+    assert стало["образцы"] != было["образцы"]
+
+
+def test_znaki_prepinaniya_pryachutsya_u_russkoy_modeli(monkeypatch):
+    """У русской модели знаки свои, и трогать их второй раз нельзя — значит и
+    переключателя быть не должно: он обещал бы то, чего программа не делает."""
+    module = _load(monkeypatch, _fake()[0])
+    rec = _idle_recorder(module)
+    hotkey = types.SimpleNamespace(key="f8")
+
+    rec.asr_model = "gigaam-v3-e2e-rnnt"
+    assert module.settings_snapshot(rec, hotkey)["знаки"] is None
+
+    rec.asr_model = "gigaam-multilingual-ctc"
+    assert module.settings_snapshot(rec, hotkey)["знаки"] is rec.punctuate
 
 
 # --- загрузка модели --------------------------------------------------------

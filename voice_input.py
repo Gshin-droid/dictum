@@ -145,6 +145,27 @@ def model_size(name: str) -> str:
     return f"{total} МБ"
 
 
+def settings_snapshot(recorder, hotkey) -> dict:
+    """Состояние настроек одним снимком: по нему окно настроек рисуется и обновляется.
+
+    Окно ничего не запоминает нарочно. Модель переключается долгой закачкой,
+    язык меняется из него же, клавишу перехватывает отдельное окно — запомненное
+    значение врало бы до следующего открытия.
+    """
+    return {
+        "модель": recorder.asr_model,
+        "модели": [(имя, model_label(имя, ключ)) for имя, ключ in ASR_MODELS.items()],
+        # None значит «раздела не нужно»: русская модель ставит знаки сама
+        "знаки": None if recorder.asr_model in PUNCTUATED_BY_MODEL else recorder.punctuate,
+        "клавиша": hotkey.key.upper(),
+        "минуты": recorder.max_minutes,
+        "варианты_минут": list(RECORD_MINUTES),
+        "образцы": recorder.save_samples,
+        "язык": messages.language(),
+        "языки": list(messages.LANGUAGES.items()),
+    }
+
+
 def model_label(name: str, key: str) -> str:
     """Подпись пункта меню. Весов нет — говорим, сколько качать."""
     label = t(key)
@@ -1539,6 +1560,27 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
             url=APP_URL,
         ))
 
+    def on_settings(icon=None, _item=None) -> None:
+        """Окно настроек. Без капсулы рисовать негде — тогда говорим словами."""
+        if window is None:
+            recorder.announce(t("settings.title"), 4)
+            return
+
+        import voice_dialogs
+
+        window.request(lambda root: voice_dialogs.show_settings(
+            root,
+            читать=lambda: settings_snapshot(recorder, hotkey),
+            on_model=lambda имя: in_background(lambda: recorder.switch_model(имя)),
+            on_punctuate=lambda да: in_background(lambda: recorder.set_punctuate(bool(да))),
+            on_hotkey=lambda: in_background(lambda: capture_hotkey(recorder, hotkey)),
+            on_minutes=lambda мин: in_background(lambda: recorder.set_max_minutes(int(мин))),
+            on_samples=lambda да: in_background(lambda: recorder.set_save_samples(bool(да))),
+            on_language=lambda код: in_background(lambda: recorder.set_interface_language(код)),
+            on_dictionary=lambda: in_background(open_dictionary),
+            on_log=lambda: in_background(open_the_log),
+        ))
+
     def choose_model(name: str):
         return lambda icon, _item=None: in_background(lambda: recorder.switch_model(name))
 
@@ -1594,37 +1636,17 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
             pystray.MenuItem(lambda _item: t("menu.transcribe"), lambda *_: ask_for_file(),
                              visible=ask_for_file is not None),
             pystray.Menu.SEPARATOR,
+            # Быстрая смена модели остаётся в меню: её трогают чаще прочего —
+            # переключился на казахский и обратно, не открывая окна.
             pystray.MenuItem(lambda _item: t("menu.model"), pystray.Menu(*model_items)),
-            pystray.MenuItem(
-                lambda _item: t("menu.punctuate"),
-                lambda *_: in_background(
-                    lambda: recorder.set_punctuate(not recorder.punctuate)
-                ),
-                checked=lambda _item: recorder.punctuate,
-                visible=lambda _item: recorder.asr_model not in PUNCTUATED_BY_MODEL,
-            ),
             pystray.MenuItem(lambda _item: t("menu.copy_last"),
                              lambda *_: in_background(recorder.copy_last_text)),
-            pystray.MenuItem(
-                lambda _item: t("menu.save_samples"),
-                lambda *_: in_background(
-                    lambda: recorder.set_save_samples(not recorder.save_samples)
-                ),
-                checked=lambda _item: recorder.save_samples,
-            ),
-            pystray.MenuItem(
-                lambda _item: t("menu.hotkey", key=hotkey.key.upper()),
-                lambda *_: in_background(lambda: capture_hotkey(recorder, hotkey)),
-            ),
-            pystray.MenuItem(lambda _item: t("menu.record_length"),
-                             pystray.Menu(*length_items)),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem(lambda _item: t("menu.interface_language"),
-                             pystray.Menu(*language_items)),
-            pystray.MenuItem(lambda _item: t("menu.dictionary"), lambda *_: open_dictionary()),
+            # Всё, что настраивают раз в месяц, переехало в окно: меню разрослось
+            # до тринадцати пунктов, и быстрые действия в нём тонули.
+            pystray.MenuItem(lambda _item: t("menu.settings"), on_settings),
             pystray.MenuItem(lambda _item: t("menu.help"), lambda *_: open_help(window)),
             pystray.MenuItem(lambda _item: t("menu.about"), on_about),
-            pystray.MenuItem(lambda _item: t("menu.log"), lambda *_: open_the_log()),
             pystray.MenuItem(lambda _item: t("menu.quit"), on_quit),
         ),
     )

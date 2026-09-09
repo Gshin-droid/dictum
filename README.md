@@ -266,23 +266,34 @@ A new paragraph begins where the recording had a pause longer than two seconds.
 
 ## Settings
 
-Everything lives in one menu — right-click the icon next to the clock:
+Settings are split in two: the tray menu keeps what you need on the fly, and a
+**Настройки…** ("Settings") window holds what you set once and forget.
+Right-click the icon next to the clock:
 
 ![The Dictum tray menu](docs/img/menu.png)
 
+**In the menu:** record, transcribe an audio file, **Язык и модель**, "Copy the
+last dictation", **Настройки…**, help, about, quit.
+
 - **Язык и модель** ("Language and model") — switches between three models. An
-  unfamiliar one downloads itself, and the choice is remembered. Don't like it?
-  Go back through the same menu.
-- **Сохранять записи на диск** ("Save recordings to disk") — off by default. When
-  on, every dictation is written into `data/dictation` as two files, audio and
-  text. Useful only for comparing two models on the same recording; it piles up
-  about 2 MB per minute of speech.
-- **Горячая клавиша** ("Hotkey") — click the item, then press the key you want.
-  Esc keeps the old one.
+  unfamiliar one downloads itself, and the choice is remembered. It stays in the
+  menu on purpose: it is the setting changed most often.
+
+**In the settings window** — everything else. Changes apply at once; there is no
+"Save" button, exactly as the old menu items behaved.
+
+- **Горячая клавиша** ("Hotkey") — the "Изменить" button, then press the key you
+  want. Esc keeps the old one.
 - **Длина записи** ("Recording length") — 2, 5 or 10 minutes. On reaching the
   limit the program stops recording by itself and pastes what it has heard so
   far. Anything said after that is not recorded — the microphone is already
   closed, and the capsule says so. A new limit applies from the next dictation.
+- **Расставлять знаки препинания** ("Add punctuation") — multilingual models
+  only: the Russian one punctuates by itself and has no such switch at all.
+- **Сохранять записи на диск** ("Save recordings to disk") — off by default. When
+  on, every dictation is written into `data/dictation` as two files, audio and
+  text. Useful only for comparing two models on the same recording; it piles up
+  about 2 MB per minute of speech.
 - **Язык программы** ("Interface language") — Russian or Kazakh. Applies at
   once, no restart needed.
 - **Словарь замен** ("Replacement dictionary") — a `Замены.txt` file next to the
@@ -290,8 +301,9 @@ Everything lives in one menu — right-click the icon next to the clock:
   about a hundred entries already in it — «гугл» → `Google`, «эксел» → `Excel`.
   Delete what you don't need, add your own. List length costs nothing: a hundred
   rules or five thousand take the same time.
-- **Справка** ("Help") — the same as this section, inside the program.
-- **О программе** ("About") — a window with the model, the key and the version.
+- **Показать журнал** ("Show the log") — the file to send when something breaks.
+
+Help and About stay in the menu: you open them, you don't configure them.
 
 The choices are stored in a `.env` file next to the program and survive a restart.
 

@@ -35,6 +35,8 @@ ACCENT = "#0a84ff"
 FONT = "Segoe UI"
 MONO = "Consolas"       # только для строк-столбцов, см. _fill
 
+_окно_настроек = None   # открытое окно настроек, чтобы не плодить второе
+
 
 def dark_titlebar(win) -> None:
     """Просит Windows покрасить рамку окна тёмным. Не умеет — останется светлой.
@@ -271,6 +273,196 @@ def show_help(root, text: str) -> None:
     win.bind("<MouseWheel>", lambda e: тело.yview_scroll(-e.delta // 120, "units"))
     список.selection_set(0)
     показать()
+
+
+# --- Настройки -----------------------------------------------------------
+
+
+def _раздел(родитель, имя: str, первый: bool = False):
+    """Заголовок раздела с чертой над ним. Возвращает место под содержимое."""
+    if not первый:
+        tk.Frame(родитель, bg=SEP, height=1).pack(fill="x", padx=28, pady=(18, 0))
+    tk.Label(родитель, text=имя, bg=BG, fg=DIM,
+             font=(FONT, 9, "bold")).pack(anchor="w", padx=28, pady=(14, 6))
+    тело = tk.Frame(родитель, bg=BG)
+    тело.pack(fill="x", padx=28)
+    return тело
+
+
+def _выбор(родитель, значение, подписи: list, при_выборе, вертикально: bool = True):
+    """Ряд переключателей. Возвращает переменную, по которой видно выбранное.
+
+    Свои цвета задаём каждому: Tk на Windows красит кружок системным белым, и
+    на тёмном окне он выглядит дырой.
+    """
+    var = tk.StringVar(value=str(значение))
+    for код, подпись in подписи:
+        кнопка = tk.Radiobutton(
+            родитель, text=подпись, value=str(код), variable=var,
+            command=(lambda к=код: при_выборе(к)),
+            bg=BG, fg=TEXT, selectcolor=CHIP, activebackground=BG, activeforeground=TEXT,
+            highlightthickness=0, borderwidth=0, font=(FONT, 10), anchor="w",
+        )
+        кнопка.pack(anchor="w", pady=1) if вертикально else кнопка.pack(side="left", padx=(0, 16))
+    return var
+
+
+def _галка(родитель, значение: bool, подпись: str, при_нажатии):
+    var = tk.BooleanVar(value=значение)
+    tk.Checkbutton(
+        родитель, text=подпись, variable=var, command=lambda: при_нажатии(var.get()),
+        bg=BG, fg=TEXT, selectcolor=CHIP, activebackground=BG, activeforeground=TEXT,
+        highlightthickness=0, borderwidth=0, font=(FONT, 10), anchor="w",
+    ).pack(anchor="w")
+    return var
+
+
+def _подсказка(родитель, текст: str, отступ: int = 0):
+    tk.Label(родитель, text=текст, bg=BG, fg=DIM, font=(FONT, 9), justify="left",
+             wraplength=430, anchor="w").pack(anchor="w", padx=(отступ, 0), pady=(2, 0))
+
+
+def _кнопка(родитель, текст: str, действие):
+    return tk.Button(родитель, text=текст, command=действие, bg=CHIP, fg=TEXT,
+                     activebackground=PICKED, activeforeground=TEXT, relief="flat",
+                     borderwidth=0, padx=14, pady=5, font=(FONT, 9), cursor="hand2")
+
+
+def show_settings(root, *, читать, on_model, on_punctuate, on_hotkey, on_minutes,
+                  on_samples, on_language, on_dictionary, on_log) -> None:
+    """Окно настроек. То, что раньше лежало пунктами в меню значка.
+
+    Меню разрослось до тринадцати пунктов, половина из которых — настройки,
+    которые трогают раз в месяц. Быстрые действия в нём тонули.
+
+    Кнопки «Сохранить» нет намеренно: каждая настройка и раньше применялась
+    сразу при нажатии в меню, и заводить здесь второй порядок — значит завести
+    два разных поведения для одного и того же.
+
+    Значения окно не хранит: `читать()` отдаёт снимок состояния, и по нему же
+    окно обновляется каждые полсекунды. Иначе оно врало бы, когда настройку
+    меняют не отсюда — например, модель переключилась долгой закачкой, или язык
+    сменили из другого окна.
+    """
+    global _окно_настроек
+
+    if _окно_настроек is not None and _окно_настроек.winfo_exists():
+        _окно_настроек.lift()  # второе такое же окно человеку не нужно
+        _окно_настроек.focus_force()
+        return
+
+    win = _window(root, t("settings.title"), 520, 730)
+    _окно_настроек = win
+
+    def закрыть():
+        global _окно_настроек
+        _окно_настроек = None
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", закрыть)
+    win.bind("<Escape>", lambda _e: закрыть())
+
+    состояние = {}
+
+    def нарисовать():
+        """Собирает содержимое заново. Зовётся при открытии и при смене языка."""
+        for ребёнок in win.winfo_children():
+            ребёнок.destroy()
+        снимок = читать()
+        состояние.clear()
+        состояние.update(снимок)
+
+        шапка = tk.Frame(win, bg=BG)
+        шапка.pack(fill="x", padx=28, pady=(22, 0))
+        tk.Frame(шапка, bg=ACCENT, width=3).pack(side="left", fill="y", padx=(0, 14))
+        подписи = tk.Frame(шапка, bg=BG)
+        подписи.pack(side="left", anchor="w")
+        tk.Label(подписи, text=t("settings.title"), bg=BG, fg=TEXT,
+                 font=(FONT, 17, "bold")).pack(anchor="w")
+        tk.Label(подписи, text=t("settings.applied"), bg=BG, fg=DIM,
+                 font=(FONT, 9)).pack(anchor="w")
+
+        # --- распознавание
+        тело = _раздел(win, t("settings.recognition"), первый=True)
+        tk.Label(тело, text=t("settings.model"), bg=BG, fg=TEXT,
+                 font=(FONT, 10)).pack(anchor="w", pady=(0, 4))
+        поле = tk.Frame(тело, bg=BG)
+        поле.pack(fill="x", padx=(12, 0))
+        переменные["модель"] = _выбор(поле, снимок["модель"], снимок["модели"], on_model)
+        _подсказка(тело, t("settings.model_hint"), отступ=12)
+
+        if снимок["знаки"] is not None:
+            рамка = tk.Frame(тело, bg=BG)
+            рамка.pack(fill="x", pady=(10, 0))
+            переменные["знаки"] = _галка(рамка, снимок["знаки"], t("menu.punctuate"),
+                                         on_punctuate)
+            _подсказка(рамка, t("settings.punctuate_hint"), отступ=22)
+
+        # --- запись
+        тело = _раздел(win, t("settings.record"))
+        строка = tk.Frame(тело, bg=BG)
+        строка.pack(fill="x")
+        tk.Label(строка, text=t("settings.hotkey"), bg=BG, fg=TEXT,
+                 font=(FONT, 10)).pack(side="left")
+        плашка = tk.Frame(строка, bg=CHIP)
+        плашка.pack(side="left", padx=12)
+        клавиша = tk.Label(плашка, text=снимок["клавиша"], bg=CHIP, fg=TEXT,
+                           font=(FONT, 9, "bold"))
+        клавиша.pack(padx=9, pady=1)
+        переменные["клавиша"] = клавиша
+        _кнопка(строка, t("settings.change"), on_hotkey).pack(side="left")
+
+        tk.Label(тело, text=t("menu.record_length"), bg=BG, fg=TEXT,
+                 font=(FONT, 10)).pack(anchor="w", pady=(12, 4))
+        ряд = tk.Frame(тело, bg=BG)
+        ряд.pack(anchor="w", padx=(12, 0))
+        переменные["минуты"] = _выбор(
+            ряд, снимок["минуты"],
+            [(м, t("menu.minutes", minutes=м)) for м in снимок["варианты_минут"]],
+            lambda значение: on_minutes(int(значение)), вертикально=False)
+        _подсказка(тело, t("settings.length_hint"), отступ=12)
+
+        рамка = tk.Frame(тело, bg=BG)
+        рамка.pack(fill="x", pady=(12, 0))
+        переменные["образцы"] = _галка(рамка, снимок["образцы"], t("menu.save_samples"),
+                                       on_samples)
+        _подсказка(рамка, t("settings.samples_hint"), отступ=22)
+
+        # --- программа
+        тело = _раздел(win, t("settings.program"))
+        tk.Label(тело, text=t("menu.interface_language"), bg=BG, fg=TEXT,
+                 font=(FONT, 10)).pack(anchor="w", pady=(0, 4))
+        ряд = tk.Frame(тело, bg=BG)
+        ряд.pack(anchor="w", padx=(12, 0))
+        переменные["язык"] = _выбор(ряд, снимок["язык"], снимок["языки"], on_language,
+                                    вертикально=False)
+
+        кнопки = tk.Frame(тело, bg=BG)
+        кнопки.pack(anchor="w", pady=(16, 22))
+        _кнопка(кнопки, t("menu.dictionary"), on_dictionary).pack(side="left")
+        _кнопка(кнопки, t("menu.log"), on_log).pack(side="left", padx=8)
+
+    переменные: dict = {}
+
+    def следить():
+        """Подтягивает окно под настоящее состояние. Настройку могли сменить не отсюда."""
+        if not win.winfo_exists():
+            return
+        свежее = читать()
+        if свежее["язык"] != состояние.get("язык"):
+            нарисовать()  # сменился язык — переписаны все надписи разом
+        else:
+            состояние.update(свежее)
+            переменные["модель"].set(str(свежее["модель"]))
+            переменные["минуты"].set(str(свежее["минуты"]))
+            переменные["образцы"].set(свежее["образцы"])
+            if свежее["знаки"] is not None and "знаки" in переменные:
+                переменные["знаки"].set(свежее["знаки"])
+            переменные["клавиша"].config(text=свежее["клавиша"])
+        win.after(500, следить)
+
+    нарисовать()
+    win.after(500, следить)
 
 
 def demo() -> None:

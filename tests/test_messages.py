@@ -21,7 +21,7 @@ def _load():
 # Ключ ищем как строковый литерал нужного вида, а не по вызову `t(...)`: два
 # ключа стоят внутри условия — `t("notice.punct_on" if value else
 # "notice.punct_off")`, и поиск по вызову видел только первый из двух.
-КЛЮЧ = re.compile(r"""["']((?:menu|notice|about|error)\.\w+)["']""")
+КЛЮЧ = re.compile(r"""["']((?:menu|notice|about|error|settings)\.\w+)["']""")
 
 
 def _klyuchi_iz_koda() -> set:
@@ -53,7 +53,7 @@ def test_russkiy_po_umolchaniyu(ms):
 
 
 def test_podstanovka(ms):
-    assert ms.t("menu.hotkey", key="F8") == "Горячая клавиша: F8"
+    assert ms.t("menu.minutes", minutes=5) == "5 мин"
 
 
 def test_bez_perevoda_beryotsya_russkiy(ms):
@@ -84,7 +84,7 @@ def test_neizvestnyy_klyuch_vozvrashchaet_sam_klyuch(ms):
 
 def test_slomannaya_podstanovka_ne_ronyaet(ms):
     """Не хватило значения — отдаём шаблон как есть, а не падаем посреди диктовки."""
-    assert "{key}" in ms.t("menu.hotkey")
+    assert "{minutes}" in ms.t("menu.minutes")
 
 
 def test_u_kazhdogo_klyucha_est_russkiy(ms):
