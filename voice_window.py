@@ -195,8 +195,11 @@ class VoiceWindow:
         # Строка под волной: текст, который уже распознан, пока человек говорит.
         # Ждать конца диктовки, глядя на волну, — всё равно что ждать вслепую:
         # непонятно, слышит ли программа вообще.
+        # Основным цветом, а не приглушённым: здесь распознанный текст, ради
+        # которого всё и затевалось, а DIM — цвет служебных надписей «Стоп» и
+        # «Отмена». Приглушённый на тёмном стекле читался плохо.
         self.preview = c.create_text(W - WAVE_PAD, H - FOOTER - 13, text="", anchor="e",
-                                     fill=DIM, font=("Segoe UI", 9))
+                                     fill=TEXT, font=("Segoe UI", 9))
 
         row = H - FOOTER / 2
         self.dot = c.create_oval(22, row - 4, 30, row + 4, fill=DOT["idle"], outline="")
@@ -215,6 +218,19 @@ class VoiceWindow:
 
         c.tag_bind("stop", "<Button-1>", lambda _e: self.rec.toggle())
         c.tag_bind("cancel", "<Button-1>", lambda _e: self.rec.cancel())
+        # Клик по самой надписи снимает сообщение: вставку правой кнопкой мыши
+        # программа не видит, и без ручного выхода напоминание про буфер висело
+        # бы до предохранителя, хотя человек давно всё вставил.
+        c.tag_bind(self.title, "<Button-1>", self._dismiss_notice)
+
+    def _dismiss_notice(self, _event=None) -> None:
+        """Снять сообщение по клику. Кликом по обычной надписи «Диктовка»
+        снимать нечего — тогда молчим, а не зовём диктофон почём зря."""
+        if self.rec.notice_text() is None:
+            return
+        снять = getattr(self.rec, "dismiss_notice", None)
+        if снять:
+            снять()
 
     # --- цикл обновления --------------------------------------------------
 

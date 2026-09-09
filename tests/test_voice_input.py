@@ -752,7 +752,8 @@ def test_promah_ne_vstavlyaet_vslepuyu_a_ostavlyaet_v_bufere(monkeypatch):
 
     assert sent == [], "вслепую вставлять нельзя"
     assert board.value == "расшифрованный текст", "текст должен остаться в буфере"
-    assert [combo for combo, _ in hooks] == ["ctrl+v", "shift+insert"]
+    assert [combo for combo, _ in hooks] == ["ctrl+v", "shift+insert", "ctrl+c", "ctrl+x"]
+    assert rec.notice_text() == "текст в буфере — поставь курсор и вставь"
 
 
 def test_popadanie_vstavlyaet_samo(monkeypatch):
@@ -806,8 +807,79 @@ def test_kartinka_v_bufere_ne_zatiraetsya_pustotoy(monkeypatch):
     rec._focus_target = lambda: False
 
     rec._paste("расшифрованный текст")
+    for combo, callback in hooks:
+        if combo == "ctrl+v":
+            callback()  # человек вставил сам
 
-    assert hooks == [], "возвращать нечего — слежение вставать не должно"
+    assert board.value == "расшифрованный текст",         "пустоту возвращать нельзя: она сотрёт картинку"
+    assert rec.notice_text() is None, "вставил — напоминание должно уйти"
+
+
+def _napominanie(module, monkeypatch):
+    """Диктофон в состоянии «текст остался в буфере, напоминание висит»."""
+    rec = _idle_recorder(module)
+    # Буфер пуст нарочно: возвращать нечего, и отложенный возврат не полезет
+    # в чужую проверку. Напоминание от этого не зависит — оно про промах окна.
+    board = _fake_clipboard(monkeypatch, "")
+    _sent, hooks = _fake_kb(monkeypatch)
+    rec._focus_target = lambda: False
+    rec._paste("расшифрованный текст")
+    assert rec.notice_text() is not None, "напоминание должно было появиться"
+    return rec, board, dict(hooks)
+
+
+def test_napominanie_pro_bufer_ne_uhodit_po_taymeru(monkeypatch):
+    """Прежние 30 секунд истекали, пока человек ещё искал нужное окно, и текст
+    оставался в буфере молча. Срок теперь только предохранитель."""
+    module = _load(monkeypatch, _fake()[0])
+    rec, _board, _hooks = _napominanie(module, monkeypatch)
+
+    осталось = rec._notice[1] - time.time()
+    assert осталось > 60, f"напоминание снимется через {осталось:.0f} с — это снова таймер"
+
+
+def test_svoyo_kopirovanie_snimaet_napominanie(monkeypatch):
+    """Человек скопировал своё — нашей диктовки в буфере больше нет, и
+    напоминание про неё стало враньём."""
+    module = _load(monkeypatch, _fake()[0])
+    rec, _board, hooks = _napominanie(module, monkeypatch)
+
+    hooks["ctrl+c"]()
+
+    assert rec.notice_text() is None
+
+
+def test_novaya_diktovka_snimaet_napominanie(monkeypatch):
+    """Старое напоминание протухло: буфер сейчас займёт новый текст."""
+    module = _load(monkeypatch, _fake()[0])
+    rec, _board, _hooks = _napominanie(module, monkeypatch)
+
+    rec._drop_notice(rec._clipboard_notice)  # это и делает _start перед записью
+
+    assert rec.notice_text() is None
+
+
+def test_klik_snimaet_napominanie(monkeypatch):
+    """Ручной выход: вставку правой кнопкой мыши перехват не видит, и без
+    клика напоминание висело бы до предохранителя."""
+    module = _load(monkeypatch, _fake()[0])
+    rec, _board, _hooks = _napominanie(module, monkeypatch)
+
+    rec.dismiss_notice()
+
+    assert rec.notice_text() is None
+
+
+def test_snimaetsya_tolko_svoyo_soobshchenie(monkeypatch):
+    """Пока человек искал окно, на капсуле могло появиться сообщение поновее.
+    Гасить его — значит спрятать то, чего он ещё не читал."""
+    module = _load(monkeypatch, _fake()[0])
+    rec, _board, hooks = _napominanie(module, monkeypatch)
+
+    rec.announce("модель не поднялась", 60)
+    hooks["ctrl+v"]()
+
+    assert rec.notice_text() == "модель не поднялась"
 
 
 def test_zanyatyy_bufer_ne_ronyaet_diktovku(monkeypatch):
@@ -883,8 +955,23 @@ def test_skachat_pishetsya_tolko_u_otsutstvuyushchih(monkeypatch, tmp_path):
     # ключи, а не готовые подписи: подписи берутся из общего списка сообщений,
     # и подставленная сюда строка проверяла бы саму себя
     assert module.model_label("gigaam-v3-e2e-rnnt", "menu.model_russian") == "Русский"
+    # 225 весов плюс 107 знаков препинания: без них многоязычная выдаёт текст
+    # сплошь строчными, так что качаются они всегда — молча и следом.
     assert module.model_label("gigaam-multilingual-ctc", "menu.model_multi") == \
-        "Многоязычная — скачать 225 МБ"
+        "Многоязычная — скачать 332 МБ"
+
+
+def test_znaki_prepinaniya_uzhe_est_v_razmer_ne_vhodyat(monkeypatch, tmp_path):
+    """Второй раз их не качают — и в цифре меню их быть не должно."""
+    module = _load(monkeypatch, _fake()[0])
+    monkeypatch.setattr(module, "APP_DIR", tmp_path)
+    from punctuate import MODEL_DIR as PUNCT_DIR
+    (tmp_path / "models" / PUNCT_DIR).mkdir(parents=True)
+    (tmp_path / "models" / PUNCT_DIR / "punct.onnx").write_bytes(b"")
+
+    assert module.model_size("gigaam-multilingual-ctc") == "225 МБ"
+    # русская модель ставит знаки сама, ей эти 107 МБ не нужны никогда
+    assert module.model_size("gigaam-v3-e2e-rnnt") == "216 МБ"
 
 
 def test_kopiruet_poslednyuyu_diktovku(monkeypatch):
@@ -1318,7 +1405,7 @@ def test_diktovka_ostayotsya_v_bufere_posle_avtovstavki(monkeypatch):
     assert sent == ["ctrl+v"], "автоматическая вставка обязана остаться"
     assert board.value == "расшифрованный текст", (
         f"диктовка пропала из буфера, там теперь {board.value!r}")
-    assert [combo for combo, _ in hooks] == ["ctrl+v", "shift+insert"], (
+    assert [combo for combo, _ in hooks] == ["ctrl+v", "shift+insert", "ctrl+c", "ctrl+x"], (
         "слежение за ручной вставкой должно стоять и после автоматической")
 
 

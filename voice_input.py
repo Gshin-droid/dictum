@@ -68,10 +68,14 @@ ASR_MODELS = {
 # Сколько качать, если весов ещё нет. Человеку нужно знать это до нажатия,
 # а не после: четверть гигабайта на рабочем интернете — уже решение.
 MODEL_SIZES = {
-    "gigaam-v3-e2e-rnnt": "216 МБ",
-    "gigaam-multilingual-ctc": "225 МБ",
-    "gigaam-multilingual-large-ctc": "592 МБ",
+    "gigaam-v3-e2e-rnnt": 216,
+    "gigaam-multilingual-ctc": 225,
+    "gigaam-multilingual-large-ctc": 592,
 }
+# Знаки препинания для многоязычной ветки качаются отдельной моделью и молча.
+# В меню этого не было: сказано 225 МБ, приезжало 332 — и человек, решивший
+# по цифре, что трафика хватит, получал полуторный счёт.
+PUNCT_SIZE_MB = 107
 DEFAULT_ASR_MODEL = "gigaam-v3-e2e-rnnt"
 # Знаки препинания ставит только многоязычная ветка: у русской e2e-модели они
 # свои, и трогать их второй раз нельзя — испортим то, что и так верно.
@@ -125,13 +129,28 @@ def read_minutes(value: str | None) -> int:
     return minutes if minutes in RECORD_MINUTES else DEFAULT_MINUTES
 
 
+def model_size(name: str) -> str:
+    """Сколько качать на самом деле: веса модели плюс знаки препинания, если
+    они этой модели нужны и ещё не лежат рядом.
+
+    Складываем, а не храним готовое число: два числа в двух местах разъезжаются
+    молча, а это ровно то, что уже случилось — 225 МБ в меню против 332 по факту.
+    """
+    total = MODEL_SIZES.get(name)
+    if total is None:
+        return ""
+    from punctuate import MODEL_DIR as PUNCT_DIR
+    if name not in PUNCTUATED_BY_MODEL and not module_ready(PUNCT_DIR):
+        total += PUNCT_SIZE_MB
+    return f"{total} МБ"
+
+
 def model_label(name: str, key: str) -> str:
     """Подпись пункта меню. Весов нет — говорим, сколько качать."""
     label = t(key)
     if module_ready(name):
         return label
-    return t("menu.model_download", label=label,
-             size=MODEL_SIZES.get(name, "")).rstrip(" —")
+    return t("menu.model_download", label=label, size=model_size(name)).rstrip(" —")
 
 
 APP_NAME = "Dictum"
@@ -199,6 +218,12 @@ SILENCE_SHARE = 0.08
 SINGLE_INSTANCE_PORT = 47811  # локальный порт как замок от второго экземпляра
 LEVELS_KEPT = 200  # история громкости для волны, с запасом на ширину окна
 NOTICE_SECONDS = 3.0  # сколько показывать сообщение вроде «речь не распознана»
+# Напоминание «текст в буфере» живёт не по таймеру, а до дела: вставили,
+# скопировали своё, начали новую диктовку или кликнули по нему. Прежние 30
+# секунд снимали его, пока человек ещё искал нужное окно, и текст оставался
+# висеть в буфере молча. Срок ниже — только предохранитель на случай, когда
+# ни одно из этих событий так и не наступило.
+CLIPBOARD_NOTICE_SECONDS = 600
 
 
 # под pythonw консоли нет — print() уходит в лог-файл
@@ -572,6 +597,7 @@ class Recorder:
         self._vad = None  # нарезчик по тишине, грузится по первой надобности
         self._punctuator = None  # знаки препинания, грузятся по первой надобности
         self._paste_hooks = []  # слежение за ручной вставкой, см. _watch_for_paste
+        self._clipboard_notice = ""  # напоминание про буфер, которое сейчас висит
         self._dictionary = replacements.Dictionary(APP_DIR / replacements.FILE_NAME)
         self.punctuate = True  # выключатель в меню, значение приходит из .env
         self.max_minutes = max_minutes  # предел одной записи, тоже из меню
@@ -613,6 +639,27 @@ class Recorder:
 
     def _notify(self, text: str, seconds: float = NOTICE_SECONDS) -> None:
         self._notice = (text, time.time() + seconds)
+
+    def _drop_notice(self, text: str) -> None:
+        """Снять сообщение, если на экране всё ещё оно.
+
+        Сверяемся с текстом, а не снимаем что попало: пока человек искал окно,
+        на капсуле могло появиться сообщение поновее, и гасить его — значит
+        прятать то, чего он ещё не читал.
+        """
+        if text and self._notice[0] == text:
+            self._notify("")
+            self._clipboard_notice = ""
+
+    def dismiss_notice(self) -> None:
+        """Клик по сообщению в капсуле: прочитал — убрал.
+
+        Ручной выход для случаев, когда автоматика промахнулась: вставку правой
+        кнопкой мыши перехват не видит, и без этого напоминание висело бы до
+        предохранителя.
+        """
+        self._notify("")
+        self._clipboard_notice = ""
 
     @contextlib.contextmanager
     def _working(self, text: str):
@@ -923,6 +970,8 @@ class Recorder:
         # Обещание вернуть буфер от прошлой диктовки к этому моменту протухло:
         # человек её так и не вставил, а новый текст сейчас займёт буфер сам.
         self._forget_paste_watch()
+        # Напоминание от прошлой диктовки протухло: её текст буфер сейчас потеряет.
+        self._drop_notice(self._clipboard_notice)
         self.target_hwnd = ctypes.windll.user32.GetForegroundWindow()
         self.frames = []
         self.levels.clear()
@@ -1225,7 +1274,10 @@ class Recorder:
 
         if not landed:
             print("Окно не вышло на передний план — текст оставлен в буфере")
-            self._notify(t("notice.clipboard_has_text"), 30)
+            # Текст запоминаем, а не берём заново при снятии: язык программы
+            # переключается в меню, и надпись к тому моменту может стать другой.
+            self._clipboard_notice = t("notice.clipboard_has_text")
+            self._notify(self._clipboard_notice, CLIPBOARD_NOTICE_SECONDS)
         elif clipboard_holds(text):
             keyboard.send("ctrl+v")
         else:
@@ -1246,8 +1298,9 @@ class Recorder:
         # «нет» и для панели задач, и для редактора VS Code (замерено).
         # Поэтому не гадаем: диктовка остаётся в буфере, пока не появится
         # доказательство — собственное нажатие Ctrl+V или Shift+Insert.
-        if previous:
-            self._watch_for_paste(previous, text)
+        # Следим всегда, а не только когда есть что возвращать: та же вставка
+        # снимает и напоминание «текст в буфере — поставь курсор и вставь».
+        self._watch_for_paste(previous, text)
 
     def _watch_for_paste(self, previous: str, ours: str) -> None:
         """Вернуть прежний буфер, когда человек вставит текст сам.
@@ -1261,21 +1314,38 @@ class Recorder:
 
         self._forget_paste_watch()
 
+        pending = self._clipboard_notice
+
         def on_paste():
+            self._drop_notice(pending)  # дошло до человека — напоминать больше не о чем
+            if not previous:
+                return  # возвращать нечего, следили только ради напоминания
             # Даём вставке пройти: вернём буфер сразу — приложение успеет
             # прочитать уже подменённое содержимое и вставит не то.
             threading.Timer(0.4, lambda: self._put_back(previous, ours)).start()
 
-        for combo in ("ctrl+v", "shift+insert"):
+        def on_copy():
+            # Человек скопировал своё. Наша диктовка в буфере уже не лежит,
+            # напоминать про неё — врать, а возвращать прежнее — затирать чужое.
+            self._drop_notice(pending)
+            # Снятие откладываем: снимать перехват изнутри самого перехвата
+            # библиотека `keyboard` не обещает, а ловить из-за этого зависание
+            # горячих клавиш — слишком дорого.
+            threading.Timer(0.1, self._forget_paste_watch).start()
+
+        watched = (("ctrl+v", on_paste), ("shift+insert", on_paste),
+                   ("ctrl+c", on_copy), ("ctrl+x", on_copy))
+        for combo, action in watched:
             try:
-                self._paste_hooks.append(keyboard.add_hotkey(combo, on_paste, suppress=False))
+                self._paste_hooks.append(keyboard.add_hotkey(combo, action, suppress=False))
             except Exception as exc:
                 print(f"Не смог следить за {combo}: {exc}")
         # Молчим, когда всё встало: строка на каждую диктовку — шум. Говорим
         # только о недостаче, иначе «возврат не работает» опять будет без причины.
-        if len(self._paste_hooks) < 2:
-            print(f"Слежение за ручной вставкой встало не полностью: "
-                  f"{len(self._paste_hooks)} из 2 — возврат буфера может не сработать")
+        if len(self._paste_hooks) < len(watched):
+            print(f"Слежение за буфером встало не полностью: "
+                  f"{len(self._paste_hooks)} из {len(watched)} — "
+                  "возврат буфера и снятие напоминания могут не сработать")
 
     def _forget_paste_watch(self) -> None:
         """Снимает слежение за вставкой. Зовётся и при новой диктовке: старое
