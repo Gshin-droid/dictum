@@ -144,3 +144,19 @@ def test_vtoroe_okno_ne_otkryvaetsya(окно):
         on_dictionary=lambda *_: None, on_log=lambda *_: None,
     )
     assert voice_dialogs._окно_настроек is win, "открылось второе окно настроек"
+
+
+def test_okna_pod_svoim_znachkom():
+    """Без своего значка Tk подставляет перо Tcl/Tk, и у программы два лица:
+    микрофон в лотке и чужое перо на окнах справки и настроек."""
+    import voice_window
+
+    try:
+        root = tk.Tk()
+    except tk.TclError as беда:
+        pytest.skip(f"Tk не поднялся: {беда}")
+    root.withdraw()
+    try:
+        assert voice_window.set_app_icon(root) is True
+    finally:
+        root.destroy()

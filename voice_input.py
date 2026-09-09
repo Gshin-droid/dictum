@@ -1507,6 +1507,41 @@ def capture_hotkey(recorder: Recorder, hotkey: "Hotkey") -> None:
     recorder.announce(f"диктовка теперь на {event.name.upper()}", 4)
 
 
+def prefer_dark_menus() -> bool:
+    """Просит Windows рисовать системные меню тёмными. Ответ — приняла ли просьба.
+
+    Меню значка в лотке рисует система, а не мы: pystray отдаёт ей список
+    пунктов, дальше всё в её руках. Своих цветов у него нет вовсе, поэтому белая
+    полоса выбивалась из тёмной программы, и покрасить её обычными средствами
+    нельзя.
+
+    Ключ к этому — функция uxtheme.dll под номером 135 (SetPreferredAppMode).
+    Она недокументированная: имени у неё в библиотеке нет, только номер, и
+    Microsoft о ней ничего не обещает. Поэтому здесь всё в try: не нашлась,
+    сменила номер, отказала — меню останется белым, но программа запустится.
+
+    Значение 2 (ForceDark) вместо 1 (AllowDark) выбрано нарочно: AllowDark
+    красит меню только когда вся система в тёмной теме, а программа тёмная
+    всегда, независимо от того, что человек выбрал в Windows.
+    """
+    import ctypes
+
+    try:
+        uxtheme = ctypes.WinDLL("uxtheme")
+        задать_режим = uxtheme[135]
+        задать_режим.argtypes = [ctypes.c_int]
+        задать_режим.restype = ctypes.c_int
+        задать_режим(2)  # ForceDark
+        try:
+            uxtheme[136]()  # FlushMenuThemes: на свежих сборках уже не нужна
+        except Exception:
+            pass
+        return True
+    except Exception as беда:
+        print(f"Тёмное меню не включилось, останется системным: {беда}")
+        return False
+
+
 def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey",
                ask_for_file=None, window=None):
     """Иконка в лотке: клик — запись, правая кнопка — настройки. Живёт в своём потоке."""
@@ -1723,6 +1758,7 @@ def main() -> None:
 
     from voice_window import VoiceWindow
 
+    prefer_dark_menus()  # до создания окон и меню: режим читается при их построении
     window = VoiceWindow(recorder, hotkey.key, on_files=recorder.transcribe_files)
     hotkey.on_change = window.set_hotkey
     start_tray(recorder, window.should_quit, hotkey, ask_for_file=window.ask_for_file,

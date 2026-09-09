@@ -43,6 +43,37 @@ WAVE_MID = (H - FOOTER) / 2 - 6
 PREVIEW_CHARS = 70  # столько влезает в строку шириной с капсулу при 12 кеглю
 
 
+def set_app_icon(root) -> bool:
+    """Ставит значок программы всем её окнам. Ответ — получилось ли.
+
+    Без этого Tk подставляет собственный значок — перо Tcl/Tk, — и в панели
+    задач у программы оказывается два разных лица: микрофон в лотке и чужое
+    перо на окнах справки, «О программе» и настроек.
+
+    Через файл .ico, а не через ImageTk: Windows берёт из ico сразу все размеры,
+    а лишний модуль не пришлось бы добывать из упаковщика. Файл кладём во
+    временную папку — рисуем мы его сами, хранить между запусками нечего.
+
+    Значок косметический: не вышло — программа работает дальше, молча.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from voice_input import tray_colors, tray_image  # тот же рисунок, что в лотке
+
+    try:
+        путь = Path(tempfile.gettempdir()) / "dictum-icon.ico"
+        # Цвет по теме Windows, как у значка в лотке: на тёмной панели задач
+        # тёмный значок сливается с фоном, на светлой — светлый.
+        tray_image(tray_colors()["idle"]).save(
+            путь, sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
+        root.iconbitmap(default=str(путь))  # default — значит и всем Toplevel
+        return True
+    except Exception as беда:
+        print(f"Значок окон не поставился: {беда}")
+        return False
+
+
 def rounded(canvas, x1, y1, x2, y2, r, **kw):
     """Скруглённый прямоугольник: своего у Tk нет, собираем из сглаженного контура."""
     pts = [
@@ -146,6 +177,7 @@ class VoiceWindow:
         self.heights = [1.0] * BARS
 
         self.root = tk.Tk()
+        set_app_icon(self.root)  # до overrideredirect: у капсулы рамки нет, а у окон есть
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.geometry(self._geometry())

@@ -68,11 +68,17 @@ EXCLUDE = ["torch", "faster_whisper", "ctranslate2", "av", "tkinter.test", "pyte
 
 
 def make_icon(path: Path) -> None:
-    """Иконка exe рисуется тем же кодом, что и значок в лотке — один источник правды."""
-    sys.path.insert(0, str(ROOT))
-    from voice_input import TRAY_ON_LIGHT, tray_image
+    """Иконка exe рисуется тем же кодом, что и значок в лотке — один источник правды.
 
-    image = tray_image(TRAY_ON_LIGHT["idle"])
+    Цвет акцентный синий, а не чёрный и не белый. Лоток и окна выбирают цвет по
+    теме Windows на лету, а этот файл запекается один раз и живёт на всех фонах
+    сразу: чёрный терялся на тёмной панели задач, белый — в светлом проводнике.
+    Синий читается и там, и там, и он же означает работу в самой программе.
+    """
+    sys.path.insert(0, str(ROOT))
+    from voice_input import TRAY_ON_DARK, tray_image
+
+    image = tray_image(TRAY_ON_DARK["busy"])  # #0a84ff — тот же акцент, что в капсуле
     image.save(path, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (256, 256)])
     print(f"иконка: {path.name}")
 
