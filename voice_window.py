@@ -16,8 +16,10 @@ import tkinter as tk
 
 from messages import t
 
-W, H = 560, 132
-FOOTER = 44  # высота нижней служебной полосы, она непрозрачная
+# Крупнее прежних 560x132: шрифты подняты ради читаемости, и на старом
+# размере «Отмена» с чипом уже не помещались в полосу.
+W, H = 620, 148
+FOOTER = 52  # высота нижней служебной полосы, она непрозрачная
 RADIUS = 26  # своё скругление: столько рисуем, когда режем углы сами
 SYSTEM_RADIUS = 8  # столько кладёт Windows 11, под него подгоняем контур
 BOTTOM_MARGIN = 110  # отступ от низа экрана, чтобы не лезть на панель задач
@@ -38,7 +40,7 @@ DOT = {"idle": DIM, "recording": "#ff453a", "busy": "#0a84ff"}
 BARS = (W - 2 * WAVE_PAD) // WAVE_STEP
 # Волна поднята: внизу тела капсулы освободилась строка под распознанный текст.
 WAVE_MID = (H - FOOTER) / 2 - 6
-PREVIEW_CHARS = 78  # столько влезает в строку шириной с капсулу
+PREVIEW_CHARS = 70  # столько влезает в строку шириной с капсулу при 12 кеглю
 
 
 def rounded(canvas, x1, y1, x2, y2, r, **kw):
@@ -51,7 +53,7 @@ def rounded(canvas, x1, y1, x2, y2, r, **kw):
     return canvas.create_polygon(pts, smooth=True, **kw)
 
 
-def chip(canvas, x, y, text, *, font=("Segoe UI", 8), pad=6, tags=()):
+def chip(canvas, x, y, text, *, font=("Segoe UI", 10), pad=6, tags=()):
     """Клавиша-чип: подпись в скруглённой плашке. Возвращает правый край."""
     tid = canvas.create_text(x + pad, y, text=text, anchor="w", fill="#e5e5e7", font=font, tags=tags)
     x1, y1, x2, y2 = canvas.bbox(tid)
@@ -198,23 +200,23 @@ class VoiceWindow:
         # Основным цветом, а не приглушённым: здесь распознанный текст, ради
         # которого всё и затевалось, а DIM — цвет служебных надписей «Стоп» и
         # «Отмена». Приглушённый на тёмном стекле читался плохо.
-        self.preview = c.create_text(W - WAVE_PAD, H - FOOTER - 13, text="", anchor="e",
-                                     fill=TEXT, font=("Segoe UI", 9))
+        self.preview = c.create_text(W - WAVE_PAD, H - FOOTER - 16, text="", anchor="e",
+                                     fill=TEXT, font=("Segoe UI", 12))
 
         row = H - FOOTER / 2
         self.dot = c.create_oval(22, row - 4, 30, row + 4, fill=DOT["idle"], outline="")
         self.title = c.create_text(40, row, text="Диктовка", anchor="w", fill=TEXT,
-                                   font=("Segoe UI", 9))
+                                   font=("Segoe UI", 11))
         # чип с клавишей прячется, когда слева идёт длинная подпись состояния
-        chip(c, 104, row, self.hotkey, tags="modechip")
+        chip(c, 112, row, self.hotkey, tags="modechip")
 
-        c.create_text(W - 190, row, text="Стоп", anchor="w", fill=DIM, font=("Segoe UI", 9),
+        c.create_text(W - 200, row, text="Стоп", anchor="w", fill=DIM, font=("Segoe UI", 11),
                       tags="stop")
-        chip(c, W - 156, row, self.hotkey, tags="stop")
-        c.create_text(W - 120, row, text="|", anchor="w", fill=SEP, font=("Segoe UI", 9))
-        c.create_text(W - 106, row, text="Отмена", anchor="w", fill=DIM, font=("Segoe UI", 9),
+        chip(c, W - 162, row, self.hotkey, tags="stop")
+        c.create_text(W - 125, row, text="|", anchor="w", fill=SEP, font=("Segoe UI", 11))
+        c.create_text(W - 112, row, text="Отмена", anchor="w", fill=DIM, font=("Segoe UI", 11),
                       tags="cancel")
-        chip(c, W - 52, row, "Esc", tags="cancel")
+        chip(c, W - 56, row, "Esc", tags="cancel")
 
         c.tag_bind("stop", "<Button-1>", lambda _e: self.rec.toggle())
         c.tag_bind("cancel", "<Button-1>", lambda _e: self.rec.cancel())
@@ -342,7 +344,7 @@ class VoiceWindow:
                 c.itemconfig(bar, fill=color)
             c.itemconfig(self.dot, fill=DOT[state])
             if notice:
-                c.itemconfig(self.title, text=notice[:34], fill="#ff9f0a")
+                c.itemconfig(self.title, text=notice[:46], fill="#ff9f0a")
             elif state == "busy":
                 c.itemconfig(self.title, text="распознаю…", fill=TEXT)
             else:
