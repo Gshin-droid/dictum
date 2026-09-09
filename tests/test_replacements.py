@@ -219,3 +219,81 @@ def test_odno_slovo_dvazhdy_pobezhdaet_pervoe(tmp_path):
     """
     slovar = _slovar(tmp_path, "гугл = Google\nгугл = Гугль\n" + _mnogo_pravil(100))
     assert slovar.apply("открой гугл") == "открой Google"
+
+
+# --- личный словарь вторым файлом --------------------------------------------
+
+
+def _dva_slovarya(tmp_path, obshchiy, lichnyy=None):
+    """Словарь из двух файлов. Личный передаётся первым — он главнее."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    obshchiy_path = tmp_path / rp.FILE_NAME
+    obshchiy_path.write_text(obshchiy, encoding="utf-8")
+    lichnyy_path = None
+    if lichnyy is not None:
+        lichnyy_path = tmp_path / "Замены-мои.txt"
+        lichnyy_path.write_text(lichnyy, encoding="utf-8")
+    return rp.Dictionary(lichnyy_path, obshchiy_path)
+
+
+def test_lichnyy_slovar_dopolnyaet_obshchiy(tmp_path):
+    """Правила берутся из обоих файлов сразу."""
+    slovar = _dva_slovarya(tmp_path, "гугл = Google\n", "гидхаб = GitHub\n")
+    assert slovar.apply("гугл и гидхаб") == "Google и GitHub"
+
+
+def test_lichnoe_pravilo_glavnee_obshchego(tmp_path):
+    """Совпали левые части — побеждает личное.
+
+    Ради этого личный файл и передаётся первым: своё слово должно перебивать
+    общее, иначе вшитый словарь нельзя переспорить, не правя саму программу.
+    """
+    slovar = _dva_slovarya(tmp_path, "клод = Клод\n", "клод = Claude\n")
+    assert slovar.apply("спросил клод") == "спросил Claude"
+
+
+def test_bez_lichnogo_slovarya_rabotaet_kak_ranshe(tmp_path):
+    """Переменной нет — программа живёт по одному файлу. Это случай любого,
+    кому отдадут программу, поэтому проверяется отдельно."""
+    slovar = _dva_slovarya(tmp_path, "гугл = Google\n")
+    assert slovar.apply("открой гугл") == "открой Google"
+
+
+def test_lichnyy_slovar_ischez_ne_lomaet_obshchiy(tmp_path):
+    """Файл по пути из переменной удалён или путь неверный — не падаем."""
+    slovar = rp.Dictionary(tmp_path / "нет-такого.txt", tmp_path / rp.FILE_NAME)
+    (tmp_path / rp.FILE_NAME).write_text("гугл = Google\n", encoding="utf-8")
+    assert slovar.apply("открой гугл") == "открой Google"
+
+
+def test_pravka_lichnogo_perechityvaetsya(tmp_path):
+    """Правка личного файла подхватывается без перезапуска — как и общего."""
+    slovar = _dva_slovarya(tmp_path, "гугл = Google\n", "клод = Claude\n")
+    assert slovar.apply("клод") == "Claude"
+    (tmp_path / "Замены-мои.txt").write_text("клод = Клод Код\n", encoding="utf-8")
+    import os
+    os.utime(tmp_path / "Замены-мои.txt", (0, 0))  # время назад: правка видна по любому сдвигу
+    assert slovar.apply("клод") == "Клод Код"
+
+
+def test_extra_path_iz_peremennoy_okruzheniya(monkeypatch):
+    """DICTUM_WORDS_EXTRA читается, кавычки вокруг пути снимаются."""
+    monkeypatch.delenv("DICTUM_WORDS_EXTRA", raising=False)
+    assert rp.extra_path() is None
+    monkeypatch.setenv("DICTUM_WORDS_EXTRA", '"C:/tmp/мои.txt"')
+    assert rp.extra_path() == Path("C:/tmp/мои.txt")
+
+
+def test_vshityy_obrazets_bez_terminov_remesla():
+    """Во вшитом словаре нет узкопрофессиональных правил.
+
+    Инвариант, а не вкусовщина: образец уезжает вместе с программой к людям,
+    которые про pull request и Kubernetes не спрашивали. Проверка замкнута на
+    самом результате — список слов либо есть в образце, либо нет.
+    """
+    levye = {left.lower() for left, _ in rp.parse(rp.SAMPLE)}
+    remeslo = {"пул реквест", "код ревью", "кубернетес", "докер", "джейсон",
+               "гитхаб", "гидхаб", "гитлаб", "сиай", "сиайсиди", "клод",
+               "джемини", "онникс", "гигаам", "виспер", "эскюэль"}
+    lishnee = levye & remeslo
+    assert not lishnee, f"термины ремесла остались во вшитом словаре: {sorted(lishnee)}"

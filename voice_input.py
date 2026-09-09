@@ -619,7 +619,8 @@ class Recorder:
         self._punctuator = None  # знаки препинания, грузятся по первой надобности
         self._paste_hooks = []  # слежение за ручной вставкой, см. _watch_for_paste
         self._clipboard_notice = ""  # напоминание про буфер, которое сейчас висит
-        self._dictionary = replacements.Dictionary(APP_DIR / replacements.FILE_NAME)
+        self._dictionary = replacements.Dictionary(
+            replacements.extra_path(), APP_DIR / replacements.FILE_NAME)
         self.punctuate = True  # выключатель в меню, значение приходит из .env
         self.max_minutes = max_minutes  # предел одной записи, тоже из меню
         self.switching = True  # грузится или меняется модель: запись пока не начинаем

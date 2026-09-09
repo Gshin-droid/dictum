@@ -10,6 +10,7 @@
 каждой правки — перезапуск не нужен.
 """
 
+import os
 import re
 from pathlib import Path
 
@@ -17,6 +18,16 @@ FILE_NAME = "Замены.txt"
 
 SAMPLE = """\
 # Словарь замен Dictum.
+#
+# Здесь только то, что пригодится любому: сервисы, компании, офисные
+# программы. Свои термины — рабочий жаргон, фамилии, названия проектов —
+# держите во ВТОРОМ файле, личном: он не попадёт к тому, кому вы отдадите
+# программу. Путь к нему задаётся переменной окружения DICTUM_WORDS_EXTRA:
+#
+#     setx DICTUM_WORDS_EXTRA "C:\путь\к\Замены-мои.txt"
+#
+# Личный словарь главнее общего: совпали правила — берётся ваше. Переменной
+# нет — программа просто работает по этому файлу, как раньше.
 #
 # Слева — то, что услышала программа, справа — то, что должно получиться.
 # Разделитель — знак «равно». Строки, начинающиеся с решётки, пропускаются.
@@ -38,36 +49,18 @@ SAMPLE = """\
 # и выдуманные названия, где никакой грамматики нет.
 
 # --- добавлено 05.09.2026 по живым диктовкам ---
-# Не выдумано, а собрано из тринадцати настоящих записей: слева ровно то, что
-# программа услышала на самом деле. «Гитхаб» в списке был с самого начала, а
-# модель упорно слышит «гидхаб» через «д» — правило не срабатывало ни разу.
-гидхаб = GitHub
-гидхаба = GitHub
-гидхабе = GitHub
-гидхабу = GitHub
-гидхабом = GitHub
-гитхаба = GitHub
-гитхабе = GitHub
-гитхабу = GitHub
-гитхабом = GitHub
-вирус тотал = VirusTotal
-вирустотал = VirusTotal
+# Не выдумано, а собрано из настоящих записей: слева ровно то, что программа
+# услышала на самом деле, а не то, как слово пишется. Отсюда «микрософт» через
+# «о» — модель слышит именно так.
 микрософт = Microsoft
 микрософта = Microsoft
 микрософту = Microsoft
-гит экшн = GitHub Actions
-гит экшен = GitHub Actions
-сиай = CI
-си ай = CI
 контрол в = Ctrl+V
 контрол ц = Ctrl+C
-стейбл = stable
 
 # --- сервисы и соцсети ---
 гугл = Google
 ютуб = YouTube
-гитхаб = GitHub
-гитлаб = GitLab
 телеграм = Telegram
 ватсап = WhatsApp
 вотсап = WhatsApp
@@ -120,38 +113,10 @@ SAMPLE = """\
 трелло = Trello
 нотпад = Notepad
 
-# --- разработка ---
-джаваскрипт = JavaScript
-тайпскрипт = TypeScript
-реакт = React
-докер = Docker
-кубернетес = Kubernetes
-постгрес = PostgreSQL
-джейсон = JSON
-хтмл = HTML
-эйчтиэмэль = HTML
-цсс = CSS
-юрл = URL
-апи = API
-эйпиай = API
-эскюэль = SQL
-пул реквест = pull request
-код ревью = code review
-
 # --- нейросети ---
 чат джипити = ChatGPT
 чатджипити = ChatGPT
 джипити = GPT
-клод = Claude
-клод код = Claude Code
-джемини = Gemini
-опенроутер = OpenRouter
-хаггинг фейс = Hugging Face
-оламма = Ollama
-олама = Ollama
-виспер = Whisper
-гигаам = GigaAM
-онникс = ONNX
 
 # --- железо и связь ---
 вайфай = Wi-Fi
@@ -185,8 +150,15 @@ SAMPLE = """\
 гугл таблицы = Google Таблицы
 гугл переводчик = Google Переводчик
 эпл пэй = Apple Pay
-визуал студио = Visual Studio
-вижуал студио код = VS Code
+
+# --- добавлено 09.09.2026 по живым диктовкам ---
+# Магазин приложений и связка «сборка → выкладка». «Гугл плэй» — составное
+# правило, оно главнее одиночного «гугл», порядок в файле роли не играет.
+гугл плэй = Google Play
+гугл плей = Google Play
+гугл плэй маркет = Google Play
+плей маркет = Google Play
+плэй маркет = Google Play
 
 # --- выключены нарочно: совпадают с обычными словами ---
 # Включайте, если такие слова у вас всегда означают название, а не предмет.
@@ -196,6 +168,7 @@ SAMPLE = """\
 # трансформер = Transformer  — «трансформер» бывает и игрушкой
 # смс = SMS               — по-русски обычно пишут кириллицей
 # халык = Halyk           — по-казахски «халық» значит «народ»
+# сиди = CD               — «сиди» это ещё и «сиди смирно»
 """
 
 
@@ -283,29 +256,55 @@ def _keep_case(found: str, replacement: str) -> str:
     return replacement
 
 
-class Dictionary:
-    """Правила из файла. Файл изменился — перечитываются сами."""
+def extra_path() -> Path | None:
+    """Личный словарь из DICTUM_WORDS_EXTRA, если переменная задана.
 
-    def __init__(self, path: Path) -> None:
-        self.path = path
+    Второй файл нужен, потому что у словаря два разных хозяина. Общий едет
+    внутри программы к любому, кто её поставит, и «пул реквест = pull request»
+    там лишний. Личный — рабочий жаргон, фамилии, названия проектов — лежит
+    где угодно, хоть в синхронизируемой между машинами папке, и в раздаваемую
+    сборку не попадает вовсе.
+    """
+    value = os.getenv("DICTUM_WORDS_EXTRA", "").strip().strip('"')
+    return Path(value) if value else None
+
+
+class Dictionary:
+    """Правила из файлов. Любой изменился — перечитываются сами.
+
+    Путей может быть несколько, и порядок значит старшинство: при одинаковой
+    левой части побеждает правило из файла, названного раньше. Поэтому личный
+    словарь передаётся первым — своё слово должно перебивать общее.
+    """
+
+    def __init__(self, *paths: Path | None) -> None:
+        self.paths = [p for p in paths if p is not None]
         self._stamp = None
         self._replace = None
 
+    def _stamps(self):
+        """Отметки времени всех файлов. Отсутствующий — None, это не ошибка:
+        личного словаря у большинства не будет никогда."""
+        out = []
+        for path in self.paths:
+            try:
+                out.append(path.stat().st_mtime_ns)
+            except OSError:
+                out.append(None)
+        return tuple(out)
+
     def _refresh(self) -> None:
-        try:
-            stamp = self.path.stat().st_mtime_ns
-        except OSError:  # файла нет — замен нет, это обычное состояние
-            self._replace, self._stamp = None, None
-            return
-        if stamp == self._stamp:
+        stamp = self._stamps()
+        if stamp == self._stamp and self._stamp is not None:
             return
         self._stamp = stamp
-        try:
-            text = self.path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            self._replace = None
-            return
-        self._replace = compile_rules(parse(text))
+        texts = []
+        for path in self.paths:
+            try:
+                texts.append(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError):
+                continue  # нет файла или он битый — работаем по остальным
+        self._replace = compile_rules(parse("\n".join(texts))) if texts else None
 
     def apply(self, text: str) -> str:
         """Текст с заменами. Пустой словарь или сломанный файл — текст как был."""
