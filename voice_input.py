@@ -1581,19 +1581,6 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
             on_log=lambda: in_background(open_the_log),
         ))
 
-    def choose_model(name: str):
-        return lambda icon, _item=None: in_background(lambda: recorder.switch_model(name))
-
-    model_items = [
-        pystray.MenuItem(
-            (lambda n, l: lambda _item: model_label(n, l))(name, label),
-            choose_model(name),
-            checked=(lambda n: lambda _item: recorder.asr_model == n)(name),
-            radio=True,
-        )
-        for name, label in ASR_MODELS.items()
-    ]
-
     def choose_language(code: str):
         return lambda icon, _item=None: in_background(
             lambda: recorder.set_interface_language(code)
@@ -1636,14 +1623,13 @@ def start_tray(recorder: Recorder, quit_event: threading.Event, hotkey: "Hotkey"
             pystray.MenuItem(lambda _item: t("menu.transcribe"), lambda *_: ask_for_file(),
                              visible=ask_for_file is not None),
             pystray.Menu.SEPARATOR,
-            # Быстрая смена модели остаётся в меню: её трогают чаще прочего —
-            # переключился на казахский и обратно, не открывая окна.
-            pystray.MenuItem(lambda _item: t("menu.model"), pystray.Menu(*model_items)),
             pystray.MenuItem(lambda _item: t("menu.copy_last"),
                              lambda *_: in_background(recorder.copy_last_text)),
             pystray.Menu.SEPARATOR,
-            # Всё, что настраивают раз в месяц, переехало в окно: меню разрослось
-            # до тринадцати пунктов, и быстрые действия в нём тонули.
+            # Настройки целиком переехали в окно: меню разрослось до тринадцати
+            # пунктов, и действия в нём тонули. Модель тоже там, хотя соблазн
+            # оставить её тут был: выбирают её один раз и больше не трогают, а
+            # ради разовой настройки пункт в меню держать незачем.
             pystray.MenuItem(lambda _item: t("menu.settings"), on_settings),
             pystray.MenuItem(lambda _item: t("menu.help"), lambda *_: open_help(window)),
             pystray.MenuItem(lambda _item: t("menu.about"), on_about),

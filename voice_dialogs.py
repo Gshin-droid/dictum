@@ -384,7 +384,7 @@ def show_settings(root, *, читать, on_model, on_punctuate, on_hotkey, on_m
 
         # --- распознавание
         тело = _раздел(win, t("settings.recognition"), первый=True)
-        tk.Label(тело, text=t("settings.model"), bg=BG, fg=TEXT,
+        tk.Label(тело, text=t("menu.model"), bg=BG, fg=TEXT,
                  font=(FONT, 10)).pack(anchor="w", pady=(0, 4))
         поле = tk.Frame(тело, bg=BG)
         поле.pack(fill="x", padx=(12, 0))

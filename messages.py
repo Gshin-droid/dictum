@@ -48,7 +48,6 @@ TEXTS: dict[str, dict[str, str]] = {
     "settings.recognition": {"ru": "Распознавание", "kk": "Тану"},
     "settings.record": {"ru": "Запись", "kk": "Жазу"},
     "settings.program": {"ru": "Программа", "kk": "Бағдарлама"},
-    "settings.model": {"ru": "Модель распознавания", "kk": "Тану моделі"},
     "settings.model_hint": {
         "ru": "Русская работает точнее на русском. Многоязычная понимает "
               "казахский, киргизский и узбекский.",

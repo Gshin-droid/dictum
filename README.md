@@ -272,16 +272,16 @@ Right-click the icon next to the clock:
 
 ![The Dictum tray menu](docs/img/menu.png)
 
-**In the menu:** record, transcribe an audio file, **Язык и модель**, "Copy the
-last dictation", **Настройки…**, help, about, quit.
-
-- **Язык и модель** ("Language and model") — switches between three models. An
-  unfamiliar one downloads itself, and the choice is remembered. It stays in the
-  menu on purpose: it is the setting changed most often.
+**In the menu:** record, transcribe an audio file, "Copy the last dictation",
+**Настройки…**, help, about, quit — actions, not settings.
 
 **In the settings window** — everything else. Changes apply at once; there is no
 "Save" button, exactly as the old menu items behaved.
 
+- **Язык и модель** ("Language and model") — switches between three models. An
+  unfamiliar one downloads itself, and the choice is remembered. It lives here
+  rather than in the menu on purpose: a model is picked once and then forgotten,
+  while a menu item would be in the way every day.
 - **Горячая клавиша** ("Hotkey") — the "Изменить" button, then press the key you
   want. Esc keeps the old one.
 - **Длина записи** ("Recording length") — 2, 5 or 10 minutes. On reaching the
