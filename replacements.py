@@ -266,7 +266,30 @@ def extra_path() -> Path | None:
     сборку не попадает вовсе.
     """
     value = os.getenv("DICTUM_WORDS_EXTRA", "").strip().strip('"')
+    if not value:
+        value = _iz_reestra()
     return Path(value) if value else None
+
+
+def _iz_reestra() -> str:
+    """Тот же путь, но прямо из реестра Windows. Пусто — значит переменной нет.
+
+    Свежесозданную переменную видят только программы, запущенные ПОСЛЕ неё:
+    Windows раздаёт окружение при старте процесса и задним числом не обновляет.
+    Значит, человек прописывает setx, перезапускает диктовку из лотка — и
+    личных замен всё равно нет, потому что новый процесс унаследовал старое
+    окружение от того, кто его запустил. Выглядит как поломка, хотя всё сделано
+    верно; на этом уже спотыкались с ключом VirusTotal, см. release_check.py.
+
+    Реестр отдаёт значение сразу, без перезагрузки и перевхода.
+    """
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as ветка:
+            return str(winreg.QueryValueEx(ветка, "DICTUM_WORDS_EXTRA")[0]).strip().strip('"')
+    except (OSError, ImportError):  # переменной нет либо мы не на Windows
+        return ""
 
 
 class Dictionary:

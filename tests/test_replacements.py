@@ -277,8 +277,13 @@ def test_pravka_lichnogo_perechityvaetsya(tmp_path):
 
 
 def test_extra_path_iz_peremennoy_okruzheniya(monkeypatch):
-    """DICTUM_WORDS_EXTRA читается, кавычки вокруг пути снимаются."""
+    """DICTUM_WORDS_EXTRA читается, кавычки вокруг пути снимаются.
+
+    Реестр глушим: на машине разработчика переменная там есть, и проверка
+    отвечала бы про эту машину, а не про код.
+    """
     monkeypatch.delenv("DICTUM_WORDS_EXTRA", raising=False)
+    monkeypatch.setattr(rp, "_iz_reestra", lambda: "")
     assert rp.extra_path() is None
     monkeypatch.setenv("DICTUM_WORDS_EXTRA", '"C:/tmp/мои.txt"')
     assert rp.extra_path() == Path("C:/tmp/мои.txt")
@@ -297,3 +302,25 @@ def test_vshityy_obrazets_bez_terminov_remesla():
                "джемини", "онникс", "гигаам", "виспер", "эскюэль"}
     lishnee = levye & remeslo
     assert not lishnee, f"термины ремесла остались во вшитом словаре: {sorted(lishnee)}"
+
+
+def test_put_beryotsya_iz_reestra_kogda_okruzhenie_ustarelo(monkeypatch):
+    """Прописал setx, перезапустил программу из лотка — личных замен нет.
+
+    Причина не в словаре: новый процесс унаследовал окружение от того, кто его
+    запустил, а тот стартовал раньше переменной. Реестр отдаёт значение сразу,
+    поэтому спрашиваем и его. Проверка подделывает только чтение реестра —
+    настоящую переменную машины трогать нельзя.
+    """
+    monkeypatch.delenv("DICTUM_WORDS_EXTRA", raising=False)
+    monkeypatch.setattr(rp, "_iz_reestra", lambda: r"C:\где-то\Замены-мои.txt")
+
+    assert rp.extra_path() == Path(r"C:\где-то\Замены-мои.txt")
+
+
+def test_net_peremennoy_nigde_znachit_odin_slovar(monkeypatch):
+    """У большинства личного словаря не будет никогда — это обычное состояние."""
+    monkeypatch.delenv("DICTUM_WORDS_EXTRA", raising=False)
+    monkeypatch.setattr(rp, "_iz_reestra", lambda: "")
+
+    assert rp.extra_path() is None
