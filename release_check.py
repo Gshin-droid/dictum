@@ -115,23 +115,30 @@ def same_build(exe: Path) -> None:
             "Пересобрать: .venv\\Scripts\\python.exe build_exe.py"
         )
 
-    archive = exe.with_name(f"{exe.stem}-portable.zip")
-    if not archive.is_file():
-        print(f"Переносной копии рядом нет ({archive.name}) — сверять не с чем.\n")
+    # По шаблону, а не по одному имени: с номером версии в имени архивов может
+    # быть несколько, и раньше сверялась только обычная копия — казахскую не
+    # смотрели вовсе, хотя уезжает она тем же выпуском. Имя папки внутри архива
+    # тоже не угадываем, а читаем: угаданное имя ломается от любого переименования.
+    archives = sorted(exe.parent.glob(f"{exe.stem}-portable*.zip"))
+    if not archives:
+        print("Переносных копий рядом нет — сверять не с чем.\n")
         return
 
-    inside = f"{exe.stem}-portable/{exe.name}"
-    with zipfile.ZipFile(archive) as pack:
-        try:
-            packed = pack.getinfo(inside).CRC
-        except KeyError:
-            sys.exit(f"В {archive.name} нет {inside} — архив собран не тем скриптом.")
-    if packed != crc32(exe):
-        sys.exit(
-            f"В {archive.name} лежит другой {exe.name} — копия от прежней сборки.\n"
-            "Пересобрать: .venv\\Scripts\\python.exe build_exe.py"
-        )
-    print(f"Исходники не новее сборки, в архиве тот же {exe.name}.\n")
+    свой = crc32(exe)
+    for archive in archives:
+        with zipfile.ZipFile(archive) as pack:
+            внутри = [n for n in pack.namelist() if n.endswith(f"/{exe.name}")]
+            if len(внутри) != 1:
+                sys.exit(f"В {archive.name} не один {exe.name}, а {len(внутри)} — "
+                         "архив собран не тем скриптом.")
+            if pack.getinfo(внутри[0]).CRC != свой:
+                sys.exit(
+                    f"В {archive.name} лежит другой {exe.name} — копия от прежней сборки.\n"
+                    "Пересобрать: .venv\\Scripts\\python.exe build_exe.py --portable "
+                    "(и --portable-kk)"
+                )
+    имена = ", ".join(a.name for a in archives)
+    print(f"Исходники не новее сборки, в архивах тот же {exe.name}: {имена}.\n")
 
 
 def multipart(field: str, filename: str, payload: bytes) -> tuple[bytes, str]:

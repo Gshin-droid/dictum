@@ -981,7 +981,7 @@ def test_skachat_pishetsya_tolko_u_otsutstvuyushchih(monkeypatch, tmp_path):
     # 225 весов плюс 107 знаков препинания: без них многоязычная выдаёт текст
     # сплошь строчными, так что качаются они всегда — молча и следом.
     assert module.model_label("gigaam-multilingual-ctc", "menu.model_multi") == \
-        "Многоязычная — скачать 332 МБ"
+        "Казахский и русский — скачать 332 МБ"
 
 
 def test_znaki_prepinaniya_uzhe_est_v_razmer_ne_vhodyat(monkeypatch, tmp_path):

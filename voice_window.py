@@ -14,7 +14,7 @@ import threading
 import time
 import tkinter as tk
 
-from messages import t
+from messages import language, t
 
 # Крупнее прежних 560x132: шрифты подняты ради читаемости, и на старом
 # размере «Отмена» с чипом уже не помещались в полосу.
@@ -175,6 +175,7 @@ class VoiceWindow:
         self._requests = collections.deque()  # окна, заказанные из потока меню
         self.visible = False
         self.heights = [1.0] * BARS
+        self._lang = language()  # чтобы заметить смену языка из меню и перерисовать подписи
 
         self.root = tk.Tk()
         set_app_icon(self.root)  # до overrideredirect: у капсулы рамки нет, а у окон есть
@@ -237,17 +238,19 @@ class VoiceWindow:
 
         row = H - FOOTER / 2
         self.dot = c.create_oval(22, row - 4, 30, row + 4, fill=DOT["idle"], outline="")
-        self.title = c.create_text(40, row, text="Диктовка", anchor="w", fill=TEXT,
+        self.title = c.create_text(40, row, text=t("capsule.title"), anchor="w", fill=TEXT,
                                    font=("Segoe UI", 11))
         # чип с клавишей прячется, когда слева идёт длинная подпись состояния
         chip(c, 112, row, self.hotkey, tags="modechip")
 
-        c.create_text(W - 200, row, text="Стоп", anchor="w", fill=DIM, font=("Segoe UI", 11),
-                      tags="stop")
+        # Подписи держим по id: язык меняют из меню на ходу, а эти надписи
+        # рисуются один раз — без обновления они так и оставались русскими.
+        self.stop_label = c.create_text(W - 200, row, text=t("capsule.stop"), anchor="w",
+                                        fill=DIM, font=("Segoe UI", 11), tags="stop")
         chip(c, W - 162, row, self.hotkey, tags="stop")
         c.create_text(W - 125, row, text="|", anchor="w", fill=SEP, font=("Segoe UI", 11))
-        c.create_text(W - 112, row, text="Отмена", anchor="w", fill=DIM, font=("Segoe UI", 11),
-                      tags="cancel")
+        self.cancel_label = c.create_text(W - 112, row, text=t("capsule.cancel"), anchor="w",
+                                          fill=DIM, font=("Segoe UI", 11), tags="cancel")
         chip(c, W - 56, row, "Esc", tags="cancel")
 
         c.tag_bind("stop", "<Button-1>", lambda _e: self.rec.toggle())
@@ -378,9 +381,16 @@ class VoiceWindow:
             if notice:
                 c.itemconfig(self.title, text=notice[:46], fill="#ff9f0a")
             elif state == "busy":
-                c.itemconfig(self.title, text="распознаю…", fill=TEXT)
+                c.itemconfig(self.title, text=t("capsule.recognizing"), fill=TEXT)
             else:
-                c.itemconfig(self.title, text="Диктовка", fill=TEXT)
+                c.itemconfig(self.title, text=t("capsule.title"), fill=TEXT)
+            # Заголовок перерисовывается каждый тик и язык подхватывает сам, а
+            # «Стоп» и «Отмена» нарисованы один раз — их обновляем, только когда
+            # язык действительно сменили.
+            if self._lang != language():
+                self._lang = language()
+                c.itemconfig(self.stop_label, text=t("capsule.stop"))
+                c.itemconfig(self.cancel_label, text=t("capsule.cancel"))
             plain = not notice and state != "busy"
             c.itemconfig("modechip", state="normal" if plain else "hidden")
             c.itemconfig(self.preview, text=self._preview_line())

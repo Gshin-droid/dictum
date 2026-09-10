@@ -243,6 +243,19 @@ def build(icon: Path, version_file: Path) -> None:
     check_origins(BUILD / NAME / "PKG-00.toc")
 
 
+def portable_name(suffix: str = "") -> str:
+    """Имя переносной копии с номером версии: dictum-portable-kazahskiy-1.4.0.
+
+    Номер в имени — не украшение. Архивы копируют на флешки, кладут в выпуски и
+    пересылают; без номера две сборки различаются только датой файла, а она
+    теряется при первом же копировании. Так в выпуск 1.1.2 чуть не уехал архив
+    от 1.1.1. Заодно две версии, распакованные рядом, не сливаются в одну папку.
+    """
+    from voice_input import APP_VERSION
+
+    return f"{NAME}-portable{suffix}-{APP_VERSION}"
+
+
 def portable(extra: tuple[str, ...] = (), suffix: str = "", env: str = "") -> Path:
     """Собирает папку «распаковал и работай»: exe плюс уже скачанные модели.
 
@@ -255,7 +268,7 @@ def portable(extra: tuple[str, ...] = (), suffix: str = "", env: str = "") -> Pa
     suffix — приписка к имени, чтобы казахская копия не затирала обычную.
     env — готовые настройки рядом с программой, если копия собрана под задачу.
     """
-    folder = OUT / f"{NAME}-portable{suffix}"
+    folder = OUT / portable_name(suffix)
     shutil.rmtree(folder, ignore_errors=True)
     (folder / "models").mkdir(parents=True)
 
@@ -277,7 +290,7 @@ def portable(extra: tuple[str, ...] = (), suffix: str = "", env: str = "") -> Pa
         shutil.copytree(weights, folder / "models" / name, ignore=LEFTOVERS)
 
     print("жму в архив, это пара минут...")
-    archive = shutil.make_archive(str(OUT / f"{NAME}-portable{suffix}"), "zip", OUT, folder.name)
+    archive = shutil.make_archive(str(OUT / portable_name(suffix)), "zip", OUT, folder.name)
     return Path(archive)
 
 
@@ -329,9 +342,14 @@ def drop_portable() -> None:
 
     Поэтому старая копия не остаётся лежать вовсе: расходиться нечему.
     """
-    for suffix in ("", KAZAKH_SUFFIX):
-        shutil.rmtree(OUT / f"{NAME}-portable{suffix}", ignore_errors=True)
-        (OUT / f"{NAME}-portable{suffix}.zip").unlink(missing_ok=True)
+    # По шаблону, а не по списку суффиксов: с тех пор как в имя входит номер
+    # версии, копий от прежних выпусков может лежать сколько угодно, и все они
+    # относятся к уже не тому exe.
+    for остаток in OUT.glob(f"{NAME}-portable*"):
+        if остаток.is_dir():
+            shutil.rmtree(остаток, ignore_errors=True)
+        else:
+            остаток.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

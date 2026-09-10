@@ -55,7 +55,7 @@ exe and never downloads again: subsequent launches take seconds.
 
 ### 2. A portable folder (223 MB archive)
 
-Download `dictum-portable.zip`, unpack it, run `dictum.exe` from inside. The
+Download `dictum-portable-<version>.zip`, unpack it, run `dictum.exe` from inside. The
 model is already there — **nothing to download, no internet needed at all**.
 Good for a machine with no network, a slow or metered connection, or a flash
 drive.
@@ -65,7 +65,7 @@ itself. Desktop, Documents or a flash drive will do.
 
 ### 3. A portable folder with Kazakh (460 MB archive, pre-release)
 
-Download `dictum-portable-kazahskiy.zip` from the release marked "Pre-release".
+Download `dictum-portable-kazahskiy-<version>.zip` from the release marked "Pre-release".
 The same as the second one plus the multilingual model and punctuation for it:
 Kazakh, Kyrgyz, Uzbek. The multilingual model is preselected, so you can start
 dictating right away.

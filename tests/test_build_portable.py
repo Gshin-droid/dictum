@@ -2,6 +2,7 @@
 
 import importlib.util
 import re
+import zipfile
 import sys
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def test_portable_folder_has_everything_for_offline_start(monkeypatch, tmp_path)
 
     archive = module.portable()
 
-    folder = tmp_path / "dist" / f"{module.NAME}-portable"
+    folder = tmp_path / "dist" / module.portable_name()
     assert (folder / f"{module.NAME}.exe").exists()
     assert (folder / "models" / module.DEFAULT_MODEL / "encoder.int8.onnx").exists(), \
         "без весов копия перестаёт быть переносной — при запуске полезет в интернет"
@@ -104,7 +105,7 @@ def test_download_leftovers_stay_out_of_the_archive(monkeypatch, tmp_path):
 
     module.portable()
 
-    folder = tmp_path / "dist" / f"{module.NAME}-portable"
+    folder = tmp_path / "dist" / module.portable_name()
     assert not (folder / "models" / module.DEFAULT_MODEL / ".cache").exists()
     assert (folder / "models" / module.DEFAULT_MODEL / "encoder.int8.onnx").exists(), \
         "сами веса при этом должны остаться на месте"
@@ -120,12 +121,12 @@ def test_stale_portable_copy_does_not_survive_a_rebuild(monkeypatch, tmp_path):
     module = _load(monkeypatch, out)
     _fake_release(out, module)
     module.portable()
-    assert (out / f"{module.NAME}-portable.zip").exists()
+    assert (out / (module.portable_name() + ".zip")).exists()
 
     module.drop_portable()
 
-    assert not (out / f"{module.NAME}-portable.zip").exists()
-    assert not (out / f"{module.NAME}-portable").exists()
+    assert not (out / (module.portable_name() + ".zip")).exists()
+    assert not (out / module.portable_name()).exists()
     assert (out / f"{module.NAME}.exe").exists(), "сам exe трогать не за что"
 
 
@@ -239,7 +240,7 @@ def test_kazahskaya_kopiya_soderzhit_vse_chetyre_modeli(monkeypatch, tmp_path):
     module.portable(extra=(module.MULTILINGUAL_MODEL, module.PUNCT_MODEL),
                     suffix=module.KAZAKH_SUFFIX, env=module.KAZAKH_ENV)
 
-    folder = tmp_path / f"{module.NAME}-portable{module.KAZAKH_SUFFIX}"
+    folder = tmp_path / module.portable_name(module.KAZAKH_SUFFIX)
     внутри = {p.name for p in (folder / "models").iterdir()}
     assert внутри == {module.DEFAULT_MODEL, module.VAD_MODEL,
                       module.MULTILINGUAL_MODEL, module.PUNCT_MODEL}
@@ -255,7 +256,7 @@ def test_obychnaya_kopiya_ostayotsya_bez_kazahskogo(monkeypatch, tmp_path):
 
     module.portable()
 
-    внутри = {p.name for p in (tmp_path / f"{module.NAME}-portable" / "models").iterdir()}
+    внутри = {p.name for p in (tmp_path / module.portable_name() / "models").iterdir()}
     assert внутри == {module.DEFAULT_MODEL, module.VAD_MODEL}
 
 
@@ -263,15 +264,40 @@ def test_kazahskaya_kopiya_stiraetsya_pered_novoy_sborkoy(monkeypatch, tmp_path)
     """В ней лежит exe. После пересборки программы она превращается в копию уже
     не того файла — ровно так в выпуск 1.1.2 чуть не уехал архив от 1.1.1."""
     module = _load(monkeypatch, tmp_path)
-    stale = tmp_path / f"{module.NAME}-portable{module.KAZAKH_SUFFIX}"
+    stale = tmp_path / module.portable_name(module.KAZAKH_SUFFIX)
     stale.mkdir(parents=True)
     (stale / "старый.exe").write_bytes(b"0")
-    (tmp_path / f"{module.NAME}-portable{module.KAZAKH_SUFFIX}.zip").write_bytes(b"0")
+    (tmp_path / (module.portable_name(module.KAZAKH_SUFFIX) + ".zip")).write_bytes(b"0")
 
     module.drop_portable()
 
     assert not stale.exists()
-    assert not (tmp_path / f"{module.NAME}-portable{module.KAZAKH_SUFFIX}.zip").exists()
+    assert not (tmp_path / (module.portable_name(module.KAZAKH_SUFFIX) + ".zip")).exists()
+
+
+def test_imya_kopii_neset_nomer_versii(monkeypatch, tmp_path):
+    """Номер версии обязан быть в имени и архива, и папки внутри него.
+
+    Без номера две сборки различаются только датой файла, а она теряется при
+    первом же копировании на флешку или в чужую папку. Плюс распакованные рядом
+    версии сливались бы в одну папку.
+    """
+    module = _load(monkeypatch, tmp_path)
+    from voice_input import APP_VERSION
+
+    обычная = module.portable_name()
+    казахская = module.portable_name(module.KAZAKH_SUFFIX)
+    assert обычная.endswith(APP_VERSION), обычная
+    assert казахская.endswith(APP_VERSION), казахская
+    assert module.KAZAKH_SUFFIX in казахская, казахская
+    assert обычная != казахская
+
+    _fake_release(tmp_path, module, with_weights=True)
+    архив = module.portable()
+    assert APP_VERSION in архив.name, архив.name
+    with zipfile.ZipFile(архив) as pack:
+        папки = {n.split("/")[0] for n in pack.namelist()}
+    assert папки == {обычная}, папки
 
 
 def test_kazahskaya_kopiya_otkazyvaetsya_bez_punktuatora(monkeypatch, tmp_path):
