@@ -2,6 +2,7 @@
 
     .venv\\Scripts\\python.exe build_exe.py                 выпуск: exe и переносная копия
     .venv\\Scripts\\python.exe build_exe.py --only-exe      отладка: быстро, без архива
+    .venv\\Scripts\\python.exe build_exe.py --portable      обычная копия, из готового exe
     .venv\\Scripts\\python.exe build_exe.py --portable-kk   копия с казахским, из готового exe
     .venv\\Scripts\\python.exe build_exe.py --module        только веса казахского модуля
 
@@ -338,6 +339,16 @@ if __name__ == "__main__":
     # и забытый флаг оставлял в dist архив от прежней сборки. Теперь забывчивость
     # даёт полный комплект, а урезанная сборка требует сказать это вслух.
     only_exe = "--only-exe" in sys.argv
+
+    # Обычная копия из готового exe. Раньше её собирала только полная сборка —
+    # а та пересобирает exe заново. С 09.09.2026 exe рождается в GitHub Actions,
+    # и локальная пересборка затирала бы именно тот файл, который пойдёт на
+    # подпись: другой отпечаток, другая сборка. Симметрично --portable-kk.
+    if "--portable" in sys.argv:
+        ru = portable()
+        print(f"\nпереносная копия: {ru}  ({ru.stat().st_size / 1e6:.0f} МБ)")
+        print("exe не пересобирался — взят готовый из dist")
+        sys.exit(0)
 
     # Модуль собирается из уже скачанных весов и exe не трогает вовсе:
     # пересобирать программу ради упаковки чужих гигабайт незачем.
