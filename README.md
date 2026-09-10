@@ -94,7 +94,7 @@ program it sees for the first time.
 
 The release file has been checked on VirusTotal — seventy engines at once:
 
-**[2 detections out of 69 →](https://www.virustotal.com/gui/file/4b0c3e15742c2f63c607dac6a5d59c63c804b453b3a724f5fa7bdcad4e840555/detection)**
+**[2 detections out of 69 →](https://www.virustotal.com/gui/file/ce80e37dfef69a5c38567281b9b84f34a82324509848d5b1ce185cb9e287e8bc/detection)**
 — Bkav and Microsoft. Kaspersky, ESET, Avast and Dr.Web consider the
 file clean.
 
@@ -103,7 +103,7 @@ in 1.3.0, once the build changed and the punctuation module halved in size.
 **Release 1.1.3 had two detections and Microsoft was not among them.** There is
 no point hiding that, but it is worth explaining, because the cause is known.
 
-Microsoft's verdict is `Trojan:Win32/Wacatac.B!ml`. The `!ml` suffix means
+Microsoft's verdict is `Trojan:Win32/Wacatac.C!ml`. The `!ml` suffix means
 "machine learning": not a match against a known virus, but a trained model's
 opinion that the file resembles suspicious ones. The `Wacapew` and `Wacatac`
 families are notorious for firing on almost any program packed with PyInstaller.
@@ -144,12 +144,12 @@ explains why the technique matters in general; it says nothing about this
 program.
 
 The report is tied to the file's contents, not to whoever uploaded it. This is
-the fingerprint of release `v1.3.0` — the same exe ships as a standalone file and
+the fingerprint of release `v1.4.0` — the same exe ships as a standalone file and
 inside both archives. You can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
-# 4B0C3E15742C2F63C607DAC6A5D59C63C804B453B3A724F5FA7BDCAD4E840555
+# CE80E37DFEF69A5C38567281B9B84F34A82324509848D5B1CE185CB9E287E8BC
 ```
 
 If it does not match, the file is not from the release and should not be run.
