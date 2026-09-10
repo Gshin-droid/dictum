@@ -94,16 +94,18 @@ program it sees for the first time.
 
 The release file has been checked on VirusTotal — seventy engines at once:
 
-**[2 detections out of 69 →](https://www.virustotal.com/gui/file/ce80e37dfef69a5c38567281b9b84f34a82324509848d5b1ce185cb9e287e8bc/detection)**
-— Bkav and Microsoft. Kaspersky, ESET, Avast and Dr.Web consider the
+**[2 detections out of 69 →](https://www.virustotal.com/gui/file/1c154aa391f344ca32e0160d3905c83d89be6e469a5abf8021397a19752bf324/detection)**
+— Bkav and Zillya. Microsoft, Kaspersky, ESET, Avast and Dr.Web consider the
 file clean.
 
-Release 1.2.2 had three: Zillya used to be on the list and went quiet by itself
-in 1.3.0, once the build changed and the punctuation module halved in size.
-**Release 1.1.3 had two detections and Microsoft was not among them.** There is
-no point hiding that, but it is worth explaining, because the cause is known.
+The set of detections shifts between builds on its own: three in 1.2.2, two in
+1.3.0 (Bkav and Microsoft), two again in 1.4.0 — but Microsoft is gone and
+Zillya is back. That is neither luck nor merit of ours: such engines decide by a
+trained model, and it judges one particular file, not the program. There is no
+point hiding that, but it is worth explaining, because the cause is known.
 
-Microsoft's verdict is `Trojan:Win32/Wacatac.C!ml`. The `!ml` suffix means
+Microsoft's verdict, when it does appear, is `Trojan:Win32/Wacatac.C!ml`.
+The `!ml` suffix means
 "machine learning": not a match against a known virus, but a trained model's
 opinion that the file resembles suspicious ones. The `Wacapew` and `Wacatac`
 families are notorious for firing on almost any program packed with PyInstaller.
@@ -149,7 +151,7 @@ inside both archives. You can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
-# CE80E37DFEF69A5C38567281B9B84F34A82324509848D5B1CE185CB9E287E8BC
+# 1C154AA391F344CA32E0160D3905C83D89BE6E469A5ABF8021397A19752BF324
 ```
 
 If it does not match, the file is not from the release and should not be run.
