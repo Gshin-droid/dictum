@@ -280,13 +280,15 @@ Right-click the icon next to the clock:
 **In the settings window** — everything else. Changes apply at once; there is no
 "Save" button, exactly as the old menu items behaved.
 
+![The Dictum settings window](docs/img/nastroyki.png)
+
 - **Язык и модель** ("Language and model") — switches between three models. An
   unfamiliar one downloads itself, and the choice is remembered. It lives here
   rather than in the menu on purpose: a model is picked once and then forgotten,
   while a menu item would be in the way every day.
 - **Горячая клавиша** ("Hotkey") — the "Изменить" button, then press the key you
   want. Esc keeps the old one.
-- **Длина записи** ("Recording length") — 2, 5 or 10 minutes. On reaching the
+- **Длительность диктовки** ("Dictation length") — 2, 5 or 10 minutes. On reaching the
   limit the program stops recording by itself and pastes what it has heard so
   far. Anything said after that is not recorded — the microphone is already
   closed, and the capsule says so. A new limit applies from the next dictation.
@@ -306,6 +308,8 @@ Right-click the icon next to the clock:
 - **Показать журнал** ("Show the log") — the file to send when something breaks.
 
 Help and About stay in the menu: you open them, you don't configure them.
+
+![The Dictum about window](docs/img/o-programme.png)
 
 The choices are stored in a `.env` file next to the program and survive a restart.
 

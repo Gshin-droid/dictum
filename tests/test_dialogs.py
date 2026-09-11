@@ -126,3 +126,48 @@ def test_monoshirinnyy_tolko_gde_nado(vd):
     assert vd._monospace("    гугл = Google"), "пример с отступом — тоже разметка пробелами"
     assert not vd._monospace("Курсор нужно поставить в поле для ввода до нажатия F8.")
     assert not vd._monospace("")
+
+
+def test_znachok_okon_ne_sprashivaet_temu_windows(monkeypatch):
+    """Окно не может угадать фон под значком — поэтому и не гадает.
+
+    Рамку окна dark_titlebar() красит тёмной безусловно, а кнопку на панели
+    задач Windows красит по своей теме: один файл ложится на два разных фона.
+    Раньше цвет брался у tray_colors(), то есть у темы системы, и на светлой
+    теме значок выходил тёмным — на тёмной рамке его не было видно.
+    """
+    import types
+
+    спрошено, нарисовано = [], []
+    monkeypatch.setitem(sys.modules, "voice_input", types.SimpleNamespace(
+        tray_colors=lambda: спрошено.append("тема") or {"idle": "#1c1c1e"},
+        tray_image=lambda цвет: types.SimpleNamespace(save=lambda *a, **kw: None),
+        badge_image=lambda *a, **kw: нарисовано.append("жетон") or types.SimpleNamespace(
+            save=lambda *a, **kw: None),
+    ))
+    окно = _load("voice_window")
+
+    assert окно.set_app_icon(types.SimpleNamespace(iconbitmap=lambda **kw: None)) is True
+    assert спрошено == [], "значок окон спросил тему Windows, а спрашивать нечего"
+    assert нарисовано == ["жетон"], "значок окон нарисован не жетоном"
+
+
+def test_zheton_neset_fon_s_soboy():
+    """У жетона обязаны быть обе половины: светлый круг и тёмный обод.
+
+    Одна из них пропадёт — значок снова станет угадывать фон: без круга он
+    потеряется на тёмной рамке, без обода — на светлой панели задач.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT))
+    from voice_input import badge_image
+
+    значок = badge_image().convert("RGBA")
+
+    угол = значок.getpixel((1, 1))
+    обод = значок.getpixel((32, 1))    # верх обода
+    круг = значок.getpixel((10, 32))   # слева от микрофона, внутри круга
+
+    assert угол[3] == 0, "углы жетона обязаны остаться прозрачными"
+    assert обод[3] == 255 and sum(обод[:3]) < 200, f"обод не тёмный: {обод}"
+    assert круг[3] == 255 and sum(круг[:3]) > 600, f"круг не светлый: {круг}"

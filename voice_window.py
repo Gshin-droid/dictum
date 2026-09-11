@@ -59,13 +59,18 @@ def set_app_icon(root) -> bool:
     import tempfile
     from pathlib import Path
 
-    from voice_input import tray_colors, tray_image  # тот же рисунок, что в лотке
+    from voice_input import badge_image  # тот же микрофон, что в лотке, но в жетоне
 
     try:
         путь = Path(tempfile.gettempdir()) / "dictum-icon.ico"
-        # Цвет по теме Windows, как у значка в лотке: на тёмной панели задач
-        # тёмный значок сливается с фоном, на светлой — светлый.
-        tray_image(tray_colors()["idle"]).save(
+        # Тему Windows здесь НЕ спрашиваем, в отличие от лотка. Лотку тема
+        # подходит: значок лежит на панели задач и обязан меняться вместе с ней.
+        # Окнам не подходит, и одноцветным значком тут не обойтись вовсе: рамку
+        # dark_titlebar() красит тёмной безусловно, а кнопку на панели задач
+        # Windows красит по своей теме — один файл ложится на два разных фона.
+        # Жетон несёт фон с собой: светлый круг читается на тёмной рамке, тёмный
+        # обод — на светлой панели. Угадывать больше нечего.
+        badge_image().save(
             путь, sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
         root.iconbitmap(default=str(путь))  # default — значит и всем Toplevel
         return True
