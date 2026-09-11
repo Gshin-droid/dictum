@@ -22,14 +22,18 @@ Everything runs locally. No account, no subscription, no payment — and once
 installed, no internet either: neither the audio nor the text leaves the machine.
 
 Russian speech is recognised by **GigaAM v3** from Sber: it punctuates by
-itself and writes "13:15" instead of "thirteen fifteen". The menu switches to a
-multilingual model — Kazakh, Kyrgyz, Uzbek. A separate module punctuates that
-one, so Kazakh text comes out readable too, not as a single unbroken stream.
+itself and writes "13:15" instead of "thirteen fifteen". The settings switch to a
+multilingual model — Kazakh, plus Kyrgyz, Uzbek (Latin script) and English. A
+separate module punctuates that one, so Kazakh text comes out readable too, not
+as a single unbroken stream.
 
 **Windows only** (10 and 11). It will not start on macOS or Linux.
 
-> **A note on languages.** Dictum recognises Russian, Kazakh, Kyrgyz and Uzbek —
-> not English. The program's own interface and log are in Russian too. This
+> **A note on languages.** Dictum is built for Russian and Kazakh. The
+> multilingual model also takes English, but its authors promise only moderate
+> quality there and it has not been measured here — do not pick Dictum as an
+> English dictation tool. The program's interface is Russian or Kazakh, the log
+> is in Russian. This
 > English README exists so that anyone can understand what the project is and
 > how it is built; the code and the design notes in [docs/](docs/) are in Russian.
 
@@ -45,7 +49,7 @@ and delete it with one keystroke.
 Three builds to choose from — the same program, differing only in what is
 already inside.
 
-### 1. A single file (60 MB)
+### 1. A single file (62 MB)
 
 Download `dictum.exe` and run it. **The first launch takes a few minutes** —
 the program downloads the recognition model, 216 MB. A bar saying
@@ -53,7 +57,7 @@ the program downloads the recognition model, 216 MB. A bar saying
 the bottom of the screen. Wait. The model goes into a `models` folder next to the
 exe and never downloads again: subsequent launches take seconds.
 
-### 2. A portable folder (223 MB archive)
+### 2. A portable folder (221 MB archive)
 
 Download `dictum-portable-<version>.zip`, unpack it, run `dictum.exe` from inside. The
 model is already there — **nothing to download, no internet needed at all**.
@@ -63,11 +67,11 @@ drive.
 Do **not** unpack it into Program Files: the program needs write access next to
 itself. Desktop, Documents or a flash drive will do.
 
-### 3. A portable folder with Kazakh (460 MB archive, pre-release)
+### 3. A portable folder with Kazakh (458 MB archive, pre-release)
 
 Download `dictum-portable-kazahskiy-<version>.zip` from the release marked "Pre-release".
-The same as the second one plus the multilingual model and punctuation for it:
-Kazakh, Kyrgyz, Uzbek. The multilingual model is preselected, so you can start
+The same as the second one plus the multilingual model and punctuation for it —
+for Kazakh. The multilingual model is preselected, so you can start
 dictating right away.
 
 **Why pre-release.** The author uses the Russian side daily, but **nobody has
@@ -77,12 +81,12 @@ texts, not about live speech. The Kazakh interface strings are also waiting for 
 native speaker to read them. If you speak Kazakh and can tell what comes out
 wrong, that is exactly the help this needs.
 
-The Russian model is in there as well — switching to it from the tray menu
+The Russian model is in there as well — switching to it in the settings
 downloads nothing.
 
 The archive is large because it carries three sets of weights instead of one.
-If you have internet, it is simpler to take `dictum.exe` and add Kazakh from the
-menu: the program downloads what is missing by itself.
+If you have internet, it is simpler to take `dictum.exe` and pick Kazakh in the
+settings: the program downloads what is missing by itself.
 
 ### The blue window on first launch
 
@@ -94,13 +98,13 @@ program it sees for the first time.
 
 The release file has been checked on VirusTotal — seventy engines at once:
 
-**[2 detections out of 69 →](https://www.virustotal.com/gui/file/1c154aa391f344ca32e0160d3905c83d89be6e469a5abf8021397a19752bf324/detection)**
-— Bkav and Zillya. Microsoft, Kaspersky, ESET, Avast and Dr.Web consider the
+**[1 detection out of 69 →](https://www.virustotal.com/gui/file/bc701149534e29bbc351a65dcf6b0ba948a55d4c7312fac06729b3fe6f8d8c1e/detection)**
+— Bkav. Microsoft, Kaspersky, ESET, Avast and Dr.Web consider the
 file clean.
 
 The set of detections shifts between builds on its own: three in 1.2.2, two in
 1.3.0 (Bkav and Microsoft), two again in 1.4.0 — but Microsoft is gone and
-Zillya is back. That is neither luck nor merit of ours: such engines decide by a
+Zillya is back — and only Bkav in 1.4.1. That is neither luck nor merit of ours: such engines decide by a
 trained model, and it judges one particular file, not the program. There is no
 point hiding that, but it is worth explaining, because the cause is known.
 
@@ -139,8 +143,9 @@ side, while the file is deleted by the live Defender with real-time protection
 on, and it decides for itself.
 
 What developers do about this in general: sign the executable with a developer
-certificate. That is the only real fix; it costs money and normally requires a
-legal entity. Until there is a signature, what remains is the source code next
+certificate. That is the only real fix. It usually costs money and requires a
+legal entity; for open-source projects it can be free, and the exe is already
+built in public CI on GitHub with that in mind. Until there is a signature, what remains is the source code next
 to the binary and this report. The program is built from the code in this very
 repository, and anyone can build it themselves — the command is below.
 
@@ -157,12 +162,12 @@ explains why the technique matters in general; it says nothing about this
 program.
 
 The report is tied to the file's contents, not to whoever uploaded it. This is
-the fingerprint of release `v1.4.0` — the same exe ships as a standalone file and
+the fingerprint of release `v1.4.1` — the same exe ships as a standalone file and
 inside both archives. You can verify it yourself in PowerShell:
 
 ```powershell
 Get-FileHash .\dictum.exe -Algorithm SHA256
-# 1C154AA391F344CA32E0160D3905C83D89BE6E469A5ABF8021397A19752BF324
+# BC701149534E29BBC351A65DCF6B0BA948A55D4C7312FAC06729B3FE6F8D8C1E
 ```
 
 If it does not match, the file is not from the release and should not be run.
@@ -187,8 +192,11 @@ clock**. It may be hiding under the "Show hidden icons" arrow.
 The text is pasted into the window that was active **at the moment recording
 started**. So put the cursor where the text should go before pressing F8.
 
-The program will not record for longer than two minutes at a stretch — it stops
-by itself. That is a safety catch in case you forgot to switch it off.
+The program will not record for longer than the chosen limit at a stretch — it
+stops by itself, recognises what was said and pastes the text. The limit is set in
+the settings window: 2, 5 or 10 minutes, two by default. It is a safety catch in
+case you forgot to switch it off, not a quality setting: long speech is cut at
+pauses and recognised in pieces while you are still talking.
 
 ### Where dictation will not work
 
@@ -335,8 +343,8 @@ read before they run anything.
 | Model | Languages | Punctuation | Size |
 |---|---|---|---|
 | `gigaam-v3-e2e-rnnt` | Russian | on its own | 216 MB |
-| `gigaam-multilingual-ctc` | Russian, Kazakh, Kyrgyz, Uzbek | by module | 225 MB |
-| `gigaam-multilingual-large-ctc` | the same four, better on spontaneous speech | by module | 592 MB |
+| `gigaam-multilingual-ctc` | Russian, Kazakh; also Kyrgyz, Uzbek (Latin script), English | by module — for Russian, Kazakh and English | 225 MB |
+| `gigaam-multilingual-large-ctc` | the same, better on spontaneous speech | the same | 592 MB |
 
 The punctuation difference is not a detail but two different families of model.
 The Russian one is trained to emit finished text: commas, full stops and capital
@@ -345,7 +353,9 @@ vocabulary holds 70 characters, and neither a full stop nor a comma is among the
 
 So a **separate module** places the marks for it: 107 MB, runs on the CPU in
 hundredths of a second, never changes a word. It handles Russian, Kazakh and
-Kyrgyz; it does not know Uzbek, so Uzbek speech stays unpunctuated.
+English. It does not know Kyrgyz or Uzbek: its vocabulary was trimmed on text in
+those three languages, so Kyrgyz and Uzbek speech stays unpunctuated. Recognition
+quality for these two and for English has not been measured either.
 
 How well it does that in Kazakh — measured on 218 sentences from the FLEURS set:
 it finds sentence boundaries in 92 cases out of 100, commas in 85, and gets the
@@ -353,7 +363,8 @@ case right on 97 % of words. On Russian it is markedly better than the previous
 233 MB module: 91 % against 84 % (F1). The full measurement is in
 [docs/kazahskiy-modul.md](docs/kazahskiy-modul.md) (Russian only).
 
-The module is downloaded from the menu, or dropped as a folder into `models/` —
+The module downloads itself when the multilingual model is picked in the
+settings, or can be dropped as a folder into `models/` —
 the second way needs no internet at all.
 
 Dictating in Russian: take the first model. Need Kazakh: take the second.
@@ -420,7 +431,7 @@ drag-and-drop onto the program stops working, and transcription stays in the men
 
 **The key does not work anywhere.** Something else may have taken it — especially
 on laptops, where the F keys are given over to brightness and volume. Change it
-in the icon menu.
+in the settings window.
 
 **The key works in some windows but not others.** Most likely the silent window
 was started as administrator. It takes a minute to check: press the key in
@@ -461,8 +472,8 @@ python -m venv .venv
 .\.venv\Scripts\python.exe voice_input.py --check   # check the microphone and the model
 .\.venv\Scripts\pythonw.exe voice_input.py          # run
 .\.venv\Scripts\python.exe -m pytest                # tests
-.\.venv\Scripts\python.exe build_exe.py             # build the exe
-.\.venv\Scripts\python.exe build_exe.py --portable  # and the portable archive too
+.\.venv\Scripts\python.exe build_exe.py             # build the exe and the portable archive
+.\.venv\Scripts\python.exe build_exe.py --portable  # the archive only, around a ready exe
 .\.venv\Scripts\python.exe release_check.py dist\dictum.exe   # check on VirusTotal
 ```
 
