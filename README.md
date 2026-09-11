@@ -122,10 +122,21 @@ and that holds for any program, not just this one.
 The keyboard hook is real and adds to the suspicion as well: without it the
 hotkey would not work. It is described openly above.
 
-**Verified on a live machine:** Defender, with real-time protection on and fresh
-definitions, scanned this exact file and left it alone — the program runs. The
-detection shows up in VirusTotal's cloud check, where Defender runs in a stricter
-mode.
+**Defender may not flag the file but delete it — silently.** That is what
+happened on 2026-09-05 on the developer's machine: the executable and its
+shortcuts were gone, with no warning window at all. The only place it shows up is
+Defender's own log — `Get-MpThreatDetection` in PowerShell. If the program "just
+stopped starting" and the exe is missing, look here rather than for a crash.
+
+The remedy is a **path exclusion**: Windows Security → Virus & threat protection
+→ Manage settings → Add or remove exclusions → the program's folder. It needs
+administrator rights, and it is your call: an exclusion means Defender no longer
+watches what is in that folder.
+
+Two statements are worth keeping apart: "passed on VirusTotal" and "passed with
+Defender" are not the same thing. VirusTotal shows an engine's verdict on their
+side, while the file is deleted by the live Defender with real-time protection
+on, and it decides for itself.
 
 What developers do about this in general: sign the executable with a developer
 certificate. That is the only real fix; it costs money and normally requires a
