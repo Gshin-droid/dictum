@@ -4,7 +4,7 @@
 > Why the Russian model needs nothing extra while the multilingual one produces
 > unpunctuated lowercase text, which punctuation model was picked and measured,
 > and how an optional module is delivered. Russian only —
-> [main README in English](../README.md).
+> [main README in English](../README.en.md).
 
 Разбор решений: почему казахскому нужен отдельный шаг расстановки знаков,
 какая модель выбрана и на чём это проверено, как устроен необязательный модуль.

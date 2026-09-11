@@ -3,7 +3,7 @@
 > **In English:** *How Dictum is packed into an exe, and why that way.* Design
 > notes on the build: the five PyInstaller traps that catch anyone packing a
 > Python speech-recognition program into a single file, what was chosen and what
-> was rejected. Russian only — [main README in English](../README.md).
+> was rejected. Russian only — [main README in English](../README.en.md).
 
 Разбор решений сборки: что выбрано, что отвергнуто и на какие грабли наступает
 всякий, кто пакует Python-программу с распознаванием речи в один файл.
@@ -226,7 +226,7 @@ if getattr(sys, "frozen", False) or sys.stdout is None:
 5. **Проверка выпуска:** `.venv\Scripts\python.exe release_check.py dist\dictum.exe --upload`.
    Отказ — не выпускать, а пересобирать. Из вывода взять отпечаток SHA256 и
    число находок.
-6. **Вписать их в оба README** — `README.md` и `README.ru.md`, раздел «Проверка
+6. **Вписать их в оба README** — `README.md` и `README.en.md`, раздел «Проверка
    антивирусами»: ссылка на отчёт, отпечаток, номер выпуска. Отпечаток от
    прошлого выпуска хуже, чем никакого: README велит не запускать файл, если не
    сошлось, — и у человека гарантированно не сойдётся.
